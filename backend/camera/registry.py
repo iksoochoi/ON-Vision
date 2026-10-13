@@ -8,6 +8,7 @@ from ..core import config as C
 from ..core.config import CAM_PARAMS
 from ..core.events import broadcast
 from ..core.rotation import ROTATIONS
+from ..core.zoom import ZOOM_MAX, ZOOM_MIN, clamp_center, clamp_zoom
 from ..detect.background import get_background
 from .slot import CameraSlot, fmt_size, parse_size
 
@@ -54,6 +55,8 @@ class Registry:
         self.reference_role = role
         new = self.trigger
         new.is_trigger = True
+        new.zoom, new.zoom_cx, new.zoom_cy = 1.0, 0.5, 0.5   # detection works on the whole view
+        new.clear_frames()
         for slot in (old, new):   # capture rate and the detection stream depend on the role
             slot.request_restart()
         self.save_settings()
@@ -115,6 +118,34 @@ class Registry:
         broadcast({"key": "rotation", "role": role or "all", "value": rotation})
         return None
 
+    def set_zoom(self, role, zoom, x=None, y=None):
+        """Zoom one camera's view (or every camera but the reference one for "all"): factor 1..4, center
+        x/y of the zoomed part in the rotated view (0..1; missing = keep). Applies at once, no restart.
+        The reference camera cannot be zoomed: its detections are in whole-view coordinates.
+        Returns an error or None."""
+        slots = self._targets(role)
+        if not slots:
+            return "unknown camera"
+        try:
+            zoom = clamp_zoom(zoom)
+            x = None if x is None else clamp_center(x)
+            y = None if y is None else clamp_center(y)
+        except (TypeError, ValueError):
+            return "invalid zoom"
+        if role in (None, "", "all"):
+            slots = [s for s in slots if not s.is_trigger]
+        elif slots[0].is_trigger and zoom > ZOOM_MIN:
+            return "the reference camera cannot be zoomed (it detects the shoe in the whole view)"
+        for slot in slots:
+            cx = slot.zoom_cx if x is None else x
+            cy = slot.zoom_cy if y is None else y
+            if (zoom, cx, cy) != (slot.zoom, slot.zoom_cx, slot.zoom_cy):
+                slot.zoom, slot.zoom_cx, slot.zoom_cy = zoom, cx, cy
+                slot.clear_frames()   # the frames in the ring were cropped differently
+        self.save_settings()
+        broadcast({"key": "zoom", "role": role or "all"})
+        return None
+
     # ---- persistence (survives restarts; overrides the .env defaults) --------------------
 
     def save_settings(self):
@@ -122,6 +153,7 @@ class Registry:
             "reference": self.reference_role,
             "cameras": {r: {"preview": fmt_size(s.preview_size), "capture": fmt_size(s.capture_size),
                             "stream": s.stream_on, "rotation": s.rotation,
+                            "zoom": {"factor": s.zoom, "x": s.zoom_cx, "y": s.zoom_cy},
                             "params": s.snapshot_params()}
                         for r, s in self._slots.items()},
         }
@@ -157,6 +189,14 @@ class Registry:
                 slot.stream_on = cfg["stream"]
             if cfg.get("rotation") in ROTATIONS:
                 slot.rotation = cfg["rotation"]
+            zoom = cfg.get("zoom")
+            if isinstance(zoom, dict) and not slot.is_trigger:
+                try:
+                    slot.zoom = clamp_zoom(zoom.get("factor", 1.0))
+                    slot.zoom_cx = clamp_center(zoom.get("x", 0.5))
+                    slot.zoom_cy = clamp_center(zoom.get("y", 0.5))
+                except (TypeError, ValueError):
+                    pass
             saved = cfg.get("params")
             for name, value in (saved.items() if isinstance(saved, dict) else ()):
                 spec = CAM_PARAMS.get(name)

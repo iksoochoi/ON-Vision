@@ -136,6 +136,12 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, St
                 self.send_error(400, err)
             else:
                 self._send_json({"ok": True})
+        elif path == "/api/zoom":
+            err = registry.set_zoom(data.get("role") or "all", data.get("zoom", 1.0), data.get("x"), data.get("y"))
+            if err:
+                self.send_error(400, err)
+            else:
+                self._send_json({"ok": True})
         elif path == "/api/bbox/auto":
             result, err = store.auto_bbox_all(data.get("scope", "unreviewed"))
             self._send_json_or_error(result, err)

@@ -33,7 +33,7 @@ from . import capture_log
 from .meta import (LABEL_STATUSES, bbox_from_background, is_valid_category, label_status, make_bbox, save_meta)
 from .paths import (image_path, meta_path, migrate_set_files, primary_image_path, primary_role, qr_prefix,
                     thumb_path, time_key, view_meta_path)
-from .shoe_id import resolve_shoe
+from .shoe_id import qr_sizes, resolve_shoe
 from .shoes import ShoeIndex
 
 SAVE_WORKERS = 3
@@ -184,7 +184,10 @@ class SampleStore:
         codes = []
         if C.QR_ENABLED:
             try:
-                codes, _ = read_qr(images)
+                seen = {}
+                codes, _ = read_qr(images, seen)
+                for role, sizes in seen.items():   # located but not read: how big it was in the picture
+                    saved[role]["qr_seen_px"] = round(max(sizes))
             except Exception as e:  # QR is best effort: never lose the images for it
                 print(f"QR decode failed ({sample_id}): {e}")
         return sample_id, meta, images, codes
@@ -223,6 +226,7 @@ class SampleStore:
             broadcast({"key": "samples_changed", "new": sample_id})
             result["saved"] = list(meta["views"])
             result["missing"] = dict(meta.get("missing_views") or {})
+            result["qr_px"] = qr_sizes(meta)
         except Exception as e:
             print(f"Sample save failed ({sample_id}): {e}")
             self._remove_files(sample_id, list(images))

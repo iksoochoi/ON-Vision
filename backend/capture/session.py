@@ -128,6 +128,9 @@ def build_set(source, ts=None, sample=None, burst=None, exact=False):
             "ae": {"exposure_us": ae.pop("exposure_us", None), "iso": ae.pop("iso", None)},
             **ae,
         }
+        crop = getattr(frame, "crop", None)
+        if crop is not None:   # zoomed view: the saved picture is this part of the whole view
+            view_meta[slot.role]["zoom_crop"] = [round(v, 4) for v in crop]
         if pick:
             view_meta[slot.role]["sharpness"] = pick["sharpness"]
             view_meta[slot.role]["pick"] = {"picked": pick["picked"], "candidates": pick["candidates"]}

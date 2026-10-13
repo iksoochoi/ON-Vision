@@ -38,8 +38,11 @@ function renderChips() {
     const s = scanning[role];
     const chip = document.createElement('span');
     const recent = Date.now() / 1000 - s.epoch < 10;
-    chip.className = 'chip ' + (s.found ? 'ok' : (recent ? '' : 'warn'));
-    chip.textContent = `${role.toUpperCase()} · ${s.found ? 'QR seen' : 'None'} · ${ago(s.epoch)}`;
+    const px = s.size_px ? ` ${Math.round(s.size_px)}px` : '';
+    const located = !s.found && s.size_px;   // a code was placed in the picture but could not be read
+    chip.className = 'chip ' + (s.found ? 'ok' : (located || !recent ? 'warn' : ''));
+    chip.title = located ? 'A QR code was located but could not be read: too small or blurred (needs ~100px+ for a 25-29 module code)' : '';
+    chip.textContent = `${role.toUpperCase()} · ${s.found ? 'QR seen' + px : (located ? 'QR located, not readable' + px : 'None')} · ${ago(s.epoch)}`;
     box.appendChild(chip);
   }
 }

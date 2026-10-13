@@ -42,6 +42,18 @@ RETRY_SEC = 5
 _BOOT_LOCK = threading.Lock()   # boot one OAK at a time; simultaneous USB boots are unreliable
 
 
+def zoomed_preview(slot):
+    """The zoomed view for the live picture, made from the newest full-size frame (the preview stream
+    cannot be cropped: it is small). Only the cropped part is converted, then shrunk to the preview
+    size. None when there is no frame yet."""
+    item = slot.latest()
+    if item is None:
+        return None
+    img = item[1].getCvFrame()
+    scale = max(slot.preview_size) / max(img.shape[:2])
+    return cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else img
+
+
 def _camera_loop(slot, pipeline, q, stop):
     """Run until stopped, the device drops, or a restart is requested (returns True for restart)."""
     role = slot.role
@@ -69,12 +81,13 @@ def _camera_loop(slot, pipeline, q, stop):
             if bg_frames is not None:
                 bg_frames = []
 
+        crop = slot.view_crop()   # zoom of the view (None = whole view); never on the reference camera
         frame = q["full"].tryGet()
         # small luma copies: for the sharpest-frame pick and, on the reference camera, the adjacent shots
         need_gray = C.PICK_WINDOW_SEC > 0 or (slot.is_trigger and C.ADJACENT)
         while frame is not None:
             gray = luma_small(frame, rotation) if need_gray else None
-            slot.push_frame(msg_ts(frame), wrap_frame(frame, rotation), gray)
+            slot.push_frame(msg_ts(frame), wrap_frame(frame, rotation, crop), gray)
             slot.count("full")
             frame = q["full"].tryGet()
 
@@ -115,7 +128,10 @@ def _camera_loop(slot, pipeline, q, stop):
             slot.count("preview")
             # convert only when someone needs the picture: live view, background capture, detection
             if slot.stream_on or bg_frames is not None or bg_detect:
-                img = rotate_image(preview.getCvFrame(), rotation)
+                img = zoomed_preview(slot) if crop is not None and bg_frames is None else None
+                zoomed = img is not None
+                if not zoomed:   # not zoomed (or no zoomed frame yet): the preview stream itself
+                    img = rotate_image(preview.getCvFrame(), rotation)
                 if bg_detect and bg_frames is None:
                     last_dets = bg_dets(img, role)
                     session.on_detections(msg_ts(preview), last_dets, auto_enabled)
@@ -139,7 +155,7 @@ def _camera_loop(slot, pipeline, q, stop):
                         draw_overlay(img, last_dets, auto_enabled, note)
                     elif bg_frames is not None:
                         draw_overlay(img, [], False, f"capturing background {len(bg_frames)}/{C.BG_FRAMES}")
-                    draw_label(img, role.upper())
+                    draw_label(img, role.upper() + (f"  x{slot.zoom:g}" if zoomed else ""))
                     ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80 if is_ref else 70])
                     if ok:
                         slot.set_preview(buf.tobytes())

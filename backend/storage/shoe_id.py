@@ -19,6 +19,20 @@ def vote(codes):
     return (ranked[0], ranked[1:]) if ranked else (None, [])
 
 
+def qr_sizes(meta):
+    """{role: (px, read)} for the cameras that saw a QR code in this set: its side in pixels, and whether it
+    was read (False = located but not readable). Only the best per camera. {} when no code was placed."""
+    out = {}
+    for code in meta.get("qr") or []:
+        px = code.get("size_px")
+        if px and px > out.get(code["view"], (0, True))[0]:
+            out[code["view"]] = (round(px), True)
+    for role, info in (meta.get("views") or {}).items():
+        if role not in out and info.get("qr_seen_px"):
+            out[role] = (info["qr_seen_px"], False)
+    return out
+
+
 def live_hit(since, until, enqueued):
     """The live scanners' code in [since, until], as (text, source) or None."""
     hit = qr_hub.live_code(since, until)

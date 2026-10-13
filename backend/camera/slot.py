@@ -11,6 +11,7 @@ from collections import deque
 from ..core import config as C
 from ..core.config import CAM_PARAMS
 from ..core.events import broadcast
+from ..core.zoom import crop_box
 
 FPS_WINDOW_SEC = 3.0   # the fps readout averages over this long
 
@@ -44,6 +45,9 @@ class CameraSlot:
         self.capture_size = C.CAPTURE_SIZE   # None = sensor full size
         self.stream_on = True                # live preview on/off (capturing is not affected)
         self.rotation = 0                    # view rotation, clockwise degrees (backend/core/rotation.py)
+        self.zoom = 1.0                      # zoom factor of the view (backend/core/zoom.py), 1 = whole view
+        self.zoom_cx = 0.5                   # center of the zoomed part, in the rotated view (0..1)
+        self.zoom_cy = 0.5
         self.usb_speed = None                # "SUPER" = USB3, "HIGH" = USB2 (known once the device is open)
         self._restart = False
         self._ring = deque()             # (timestamp_sec, frame object, small luma copy), oldest first
@@ -127,6 +131,10 @@ class CameraSlot:
         with self.lock:
             self.params[name] = value
 
+    def view_crop(self):
+        """Normalized box of the rotated view that this camera shows (zoom), None = the whole view."""
+        return crop_box(self.zoom, self.zoom_cx, self.zoom_cy)
+
     def take_focus_request(self):
         with self.lock:
             request, self.focus_request = self.focus_request, None
@@ -161,6 +169,7 @@ class CameraSlot:
                 "params": dict(self.params),
                 "preview": fmt_size(self.preview_size), "capture": fmt_size(self.capture_size),
                 "stream_on": self.stream_on, "rotation": self.rotation,
+                "zoom": {"factor": self.zoom, "x": self.zoom_cx, "y": self.zoom_cy},
                 "restart_pending": self._restart,
                 "usb": self.usb_speed, "fps": fps if self.online else {"full": 0.0, "preview": 0.0},
             }

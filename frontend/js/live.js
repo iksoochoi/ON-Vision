@@ -551,6 +551,17 @@ function buildCamList() {
         <span class="rotVal">0°</span>
         <button class="secondary rotBtn" data-step="90" title="Rotate 90° clockwise">↻</button>
       </div>
+      <div class="camzoom">
+        <label>Zoom</label>
+        <input type="range" class="zoomRange" min="1" max="4" step="0.1" value="1">
+        <span class="zoomVal">x1.0</span>
+        <button class="secondary zoomReset" title="Whole view">1x</button>
+      </div>
+      <div class="camzoom zoomPan">
+        <label>Center</label>
+        <span class="zoomHint">X</span><input type="range" class="zoomX" min="0" max="100" step="1" value="50">
+        <span class="zoomHint">Y</span><input type="range" class="zoomY" min="0" max="100" step="1" value="50">
+      </div>
       <div class="cambg">
         <span class="chip bgSt"></span>
         <button class="secondary bgShot">Capture background</button>
@@ -606,6 +617,35 @@ function buildCamList() {
         } catch (e) { say('Rotation failed: ' + e.message); }
       };
     }
+    const zoomBody = () => ({
+      role,
+      zoom: Number(row.querySelector('.zoomRange').value),
+      x: Number(row.querySelector('.zoomX').value) / 100,
+      y: Number(row.querySelector('.zoomY').value) / 100,
+    });
+    let zoomTimer = null;
+    const sendZoom = () => {   // sliders move often: send the last position after a short pause
+      const body = zoomBody();
+      row.querySelector('.zoomVal').textContent = 'x' + body.zoom.toFixed(1);
+      clearTimeout(zoomTimer);
+      zoomTimer = setTimeout(async () => {
+        try {
+          await postJson('/api/zoom', body);
+          cams[role].zoom = { factor: body.zoom, x: body.x, y: body.y };
+        } catch (e) {
+          say('Zoom failed: ' + e.message);
+          updateCamList();
+        }
+      }, 120);
+    };
+    for (const sel of ['.zoomRange', '.zoomX', '.zoomY']) {
+      row.querySelector(sel).oninput = () => { row.dataset.zoomBusy = String(Date.now()); sendZoom(); };
+    }
+    row.querySelector('.zoomReset').onclick = () => {
+      row.querySelector('.zoomRange').value = 1;
+      row.querySelector('.zoomX').value = row.querySelector('.zoomY').value = 50;
+      sendZoom();
+    };
     row.querySelector('.bgShot').onclick = async () => {
       if (!requireCameraReady(role)) return;
       try {
@@ -634,6 +674,19 @@ function updateCamList() {
     st.title = c.online ? (c.device_id || '') : (c.error || '');
     row.querySelector('.streamSw').checked = c.stream_on;
     row.querySelector('.rotVal').textContent = (c.rotation || 0) + '°';
+    const z = c.zoom || { factor: 1, x: 0.5, y: 0.5 };
+    const zoomBusy = Date.now() - Number(row.dataset.zoomBusy || 0) < 1500;   // the slider is being moved
+    if (!zoomBusy) {
+      row.querySelector('.zoomRange').value = z.factor;
+      row.querySelector('.zoomX').value = Math.round(z.x * 100);
+      row.querySelector('.zoomY').value = Math.round(z.y * 100);
+    }
+    row.querySelector('.zoomVal').textContent = 'x' + Number(z.factor).toFixed(1);
+    const refRow = role === refRole;   // the reference camera detects in the whole view: no zoom
+    for (const el of row.querySelectorAll('.camzoom input, .camzoom button')) el.disabled = !c.online || refRow;
+    row.querySelector('.camzoom').title = refRow ? 'The reference camera cannot be zoomed' : '';
+    const capW = (c.capture || '').split('x')[0];
+    row.querySelector('.zoomVal').title = Number(capW) ? `saved picture ~${Math.round(Number(capW) / z.factor)} px wide` : '';
     const stats = row.querySelector('.stats');
     stats.textContent = c.online ? statsText(c) : '';
     stats.classList.toggle('slow', c.online && isSlowUsb(c));
@@ -850,7 +903,7 @@ new EventSource('/events').onmessage = (e) => {
       }
       refreshStateSoon();
       break;
-    case 'reference': case 'camera_config': case 'stream': case 'rotation':
+    case 'reference': case 'camera_config': case 'stream': case 'rotation': case 'zoom':
       refreshStateSoon();
       break;
     case 'auto_enabled': renderAuto(data.value); break;

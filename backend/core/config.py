@@ -212,6 +212,21 @@ QR_LIVE_WINDOW_SEC = max(0.0, _env("ON_QR_LIVE_WINDOW_SEC", 3.0, float))  # live
 QR_WAIT_SEC = max(0.0, _env("ON_QR_WAIT_SEC", 4.0, float))                # ... until this long after the last shot (auto captures)
 QR_ZOOM = _env("ON_QR_ZOOM", 1, int) != 0                                 # step 3
 
+
+def _parse_roi(text):
+    """'x,y,w,h' as fractions of the picture (the QR search area) -> (x, y, w, h); ValueError if not valid."""
+    x, y, w, h = (float(v) for v in text.split(","))
+    if not (0 <= x < 1 and 0 <= y < 1 and w > 0 and h > 0 and x + w <= 1.0001 and y + h <= 1.0001):
+        raise ValueError(text)
+    return (x, y, min(w, 1 - x), min(h, 1 - y))
+
+
+# Where in the picture the QR code is looked for, as x,y,w,h fractions of the (zoomed) view, e.g. 0,0.45,1,0.4 =
+# the band across the picture at 45%..85% of its height. A small area is searched faster and enlarged,
+# which finds small codes. Live scans look only there; the saved pictures are searched there first and
+# then as a whole. Empty = the whole picture.
+QR_ROI = _env("ON_QR_ROI", None, _parse_roi)
+
 # ---- capture log -----------------------------------------------------------
 # One line per capture (automatic or manual) in <ON_LOG_DIR>/capture.log: see backend/storage/capture_log.py.
 LOG_DIR = _path("ON_LOG_DIR", "logs")

@@ -51,9 +51,13 @@ class QrHub:
         top = max(count, key=lambda text: (count[text], last[text][0]))
         return {"role": last[top][1], "text": top, "epoch": last[top][0]}
 
-    def mark_scanned(self, role, found):
+    def mark_scanned(self, role, found, size_px=...):
+        """size_px: side of the code in the picture (read, or only located), None = no code placed,
+        ... = not measured this time (the previous value stays)."""
         with self._lock:
-            self.scanning[role] = {"epoch": time.time(), "found": bool(found)}
+            if size_px is ...:
+                size_px = self.scanning.get(role, {}).get("size_px")
+            self.scanning[role] = {"epoch": time.time(), "found": bool(found), "size_px": size_px}
 
     def snapshot(self, limit=50):
         with self._lock:

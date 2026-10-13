@@ -10,7 +10,7 @@ docs/       운영·사용 문서 (아래 목록)
 frontend/   page (HTML), css, js
 backend/
   main.py     실행 진입점 (python -m backend.main)
-  core/       config (.env 읽기), state, events, rotation
+  core/       config (.env 읽기), state, events, rotation (회전·줌 크롭), zoom
   detect/     trigger (중앙 통과 판정), background (배경차분), model (YOLO 결과)
   qr/         decode, hub (최근 결과), scanner (카메라별 실시간 스캔)
   storage/    paths, meta, shoe_id, shoes, store (세트 저장·조회), capture_log, export

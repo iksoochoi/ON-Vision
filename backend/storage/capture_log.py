@@ -49,6 +49,17 @@ def _write(status, text):
         print(f"[capture log] could not write: {e}")
 
 
+def _qr_px_text(results):
+    """How big the QR code was in the pictures: "right:130(read)" / "right:58(not-read)", the best of the
+    cuts per camera; "-" when no camera placed a code (nothing found at all)."""
+    best = {}
+    for r in results:
+        for role, (px, read) in (r.get("qr_px") or {}).items():
+            if px > best.get(role, (0, False))[0]:
+                best[role] = (px, read)
+    return ",".join(f"{role}:{px}({'read' if read else 'not-read'})" for role, (px, read) in best.items()) or "-"
+
+
 def _quote(text):
     return json.dumps(text, ensure_ascii=False)
 
@@ -103,6 +114,7 @@ def job(source, results, shoe, expected, took, totals, burst=None):
     status = "SAVED" if saved_total == wanted else ("FAILED" if saved_total == 0 else "PARTIAL")
     text, how, others = shoe
     shoe_text = f"shoe={_quote(text)}({how})" if text else "shoe=-"
+    shoe_text += " qr_px=" + _qr_px_text(results)
     if others:
         shoe_text += f" other_codes={_quote(others)}"
     with _lock:

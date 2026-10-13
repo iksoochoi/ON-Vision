@@ -62,8 +62,12 @@ class StateRoutes:
         if slot is None:
             self.send_error(400, "unknown camera")
             return
-        # the click is on the rotated view; the focus region is in sensor coordinates
-        x, y = unrotate_point(min(max(x, 0.0), 1.0), min(max(y, 0.0), 1.0), slot.rotation)
+        # the click is on the zoomed, rotated view; the focus region is in sensor coordinates
+        x, y = min(max(x, 0.0), 1.0), min(max(y, 0.0), 1.0)
+        crop = slot.view_crop()
+        if crop is not None:
+            x, y = crop[0] + x * (crop[2] - crop[0]), crop[1] + y * (crop[3] - crop[1])
+        x, y = unrotate_point(x, y, slot.rotation)
         with slot.lock:
             slot.focus_request = (x, y)
         self._send_json({"ok": True})

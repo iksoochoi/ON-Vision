@@ -262,6 +262,7 @@ input[type="range"] { accent-color: var(--accent); }
 .camrow.is-offline .camhead > :not(.st),
 .camrow.is-offline .camsel,
 .camrow.is-offline .camrot,
+.camrow.is-offline .camzoom,
 .camrow.is-offline .cambg { opacity: 0.4; }
 .camhead { display: flex; align-items: center; gap: 8px; }
 .camhead .st { margin-left: auto; }
@@ -289,6 +290,12 @@ input[type="range"] { accent-color: var(--accent); }
 .camrot { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--dim); }
 .camrot button { padding: 2px 10px; font-size: 14px; }
 .camrot .rotVal { min-width: 34px; text-align: center; color: var(--text); font-family: var(--mono); }
+.camzoom { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--dim); }
+.camzoom input[type=range] { flex: 1; min-width: 0; }
+.camzoom button { padding: 2px 10px; font-size: 12px; }
+.camzoom .zoomVal { min-width: 40px; text-align: center; color: var(--text); font-family: var(--mono); }
+.camzoom .zoomHint { font-family: var(--mono); }
+.camzoom:has(input:disabled) { opacity: 0.4; }
 .cambg { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .cambg button { margin-left: auto; padding: 4px 10px; font-size: 12px; }
 .toast {
