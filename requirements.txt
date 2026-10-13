@@ -1,0 +1,4 @@
+# Exact versions verified on the dev machine (Python 3.12). If no matching wheel exists on your Python/macOS, loosen them (e.g. depthai>=3.0.0).
+depthai==3.10.0
+numpy==2.5.3
+opencv-python==5.0.0.93
