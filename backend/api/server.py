@@ -147,6 +147,12 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, St
             self._send_json_or_error(result, err)
         elif path == "/api/export":
             self._export(data)
+        elif path == "/api/samples/delete":
+            ids = data.get("ids")
+            if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and ID_RE.match(i) for i in ids):
+                self.send_error(400, "ids: a list of sample ids")
+                return
+            self._send_json({"deleted": store.delete_many(ids)})
         elif path.startswith("/api/samples/") and path.endswith("/label"):
             self._set_label(path[len("/api/samples/"):-len("/label")], data)
         elif path.startswith("/api/samples/") and path.endswith("/bbox"):

@@ -468,12 +468,21 @@ class SampleStore:
         return True
 
     def delete(self, sample_id):
-        meta = self.get(sample_id)
-        if meta is None:
-            return False
-        self._remove_files(sample_id, list(meta.get("views") or [primary_role(meta)]))
-        broadcast({"key": "samples_changed"})
-        return True
+        return self.delete_many([sample_id]) == 1
+
+    def delete_many(self, sample_ids):
+        """Delete these samples (pictures, thumbnails and files), e.g. the cuts of one set. Returns how many
+        existed and were deleted; the browsers are told once."""
+        done = 0
+        for sample_id in dict.fromkeys(sample_ids):
+            meta = self.get(sample_id)
+            if meta is None:
+                continue
+            self._remove_files(sample_id, list(meta.get("views") or [primary_role(meta)]))
+            done += 1
+        if done:
+            broadcast({"key": "samples_changed"})
+        return done
 
 
 store = SampleStore()

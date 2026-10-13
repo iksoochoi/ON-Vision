@@ -189,6 +189,10 @@ function renderSets(box) {
     const head = el('div', 'sethead');
     head.append(el('b', '', `Set ${sets.length - i}`), el('span', '', fmtTime(s.time)),
       el('span', '', s.source === 'auto' ? 'Auto' : 'Manual'), el('span', '', `${s.cuts.length} frames`));
+    const del = el('button', 'secondary delBtn', 'Delete set');
+    del.title = 'Delete every picture of this set (all cuts, all cameras)';
+    del.onclick = () => deleteSet(s, sets.length - i);
+    head.appendChild(del);
     const grid = el('div', 'setgrid');
     grid.style.gridTemplateColumns = `64px repeat(${roles.length}, minmax(0, 1fr))`;
     grid.appendChild(el('div'));
@@ -224,6 +228,27 @@ function renderCams(box) {
     sec.append(h, grid);
     box.appendChild(sec);
   }
+}
+
+// ---- delete a whole set (all its cuts, every camera) ---------------------------------------------------
+
+async function deleteSet(s, number) {
+  const images = s.cuts.reduce((n, m) => n + Object.keys(m.views || { x: 1 }).length, 0);
+  if (!confirm(`Delete Set ${number}?
+${fmtTime(s.time)} · ${s.cuts.length} frames · ${images} images
+`
+    + 'The pictures cannot be restored.')) return;
+  try {
+    const r = await fetch('/api/samples/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: s.cuts.map((m) => m.id) }),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+  } catch (e) {
+    alert('Could not delete the set: ' + e.message);
+  }
+  clearTimeout(refreshTimer);
+  await refreshAll();
 }
 
 $('modeSets').onclick = () => { mode = 'sets'; renderDetail(false); setUrl(); };
@@ -276,7 +301,10 @@ let refreshTimer = null;
 async function refreshAll() {
   try {
     await refreshShoes();
-    if (current !== undefined && shoes.some((s) => s.shoe_id === current)) await selectShoe(current, true);
+    if (current === undefined) return;
+    if (shoes.some((s) => s.shoe_id === current)) await selectShoe(current, true);
+    else if (shoes.length) await selectShoe(shoes[0].shoe_id);   // the last set of this shoe was deleted
+    else { current = undefined; metas = []; sets = []; renderDetail(false); }
   } catch (e) { /* the next event tries again */ }
 }
 
