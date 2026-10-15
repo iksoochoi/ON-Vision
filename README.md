@@ -18,7 +18,7 @@ backend/
   camera/     slot, registry, device, controls, overlay, pipeline, worker  (depthai는 여기서만 import)
   api/        server (라우팅) + responses / state / sample / export / stream routes
   health/     app.log (앱이 찍는 모든 것), collect.log (수집 문제), 카메라 감시(monitor), Google Chat 웹훅 알림(alerts)
-  cli/        list_cameras, export_dataset, test_alert  (python -m backend.cli.<이름>)
+  cli/        list_cameras, export_dataset, test_alert, fps_probe  (python -m backend.cli.<이름>)
   models/     모델 파일 (shoe_detection/: 신발 감지 모델, OAK 카메라 안에서 실행)
 .env        설정 (항목마다 설명과 가능한 값이 적혀 있음)
 captures/ logs/ exports/   실행 중 생기는 데이터
@@ -72,6 +72,7 @@ bash bin/setup_mac.sh                # 처음 한 번: .venv 생성 + 패키지 
 ```bash
 .venv/bin/python -m backend.cli.list_cameras     # 연결된 OAK의 장치 id와 .env에 붙일 ON_CAMERAS 줄
 .venv/bin/python -m backend.cli.export_dataset   # YOLO 데이터셋 내보내기 (옵션: --reviewed-only --val-ratio --no-negatives --max-side)
+.venv/bin/python -m backend.cli.fps_probe --sweep   # 카메라 1대가 요청한 fps대로 나오는지 측정 (앱/서비스를 먼저 멈출 것)
 ```
 
 ### 신발 감지 모델 (기준 카메라에서 신발을 찾는 모델)
