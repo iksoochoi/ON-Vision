@@ -65,21 +65,44 @@ function renderRows() {
   }
 }
 
+const openDays = new Set();   // dates whose hours are shown
+let dailyData = [];
+
 function renderDaily(days) {
+  if (days) dailyData = days;
   const tbody = $('dailyRows'), foot = $('dailyTotal');
-  if (!days.length) {
+  if (!dailyData.length) {
     tbody.innerHTML = '<tr><td colspan="5" class="empty-row">None yet</td></tr>';
     foot.innerHTML = '';
     return;
   }
   const rate = (ok, n) => (n ? (100 * ok / n).toFixed(1) + '%' : '-');
-  tbody.innerHTML = days.map((d) =>
-    `<tr><td>${esc(d.date)}</td><td class="num">${d.sets}</td><td class="num">${d.ok}</td>` +
-    `<td class="num${d.fail ? ' bad' : ''}">${d.fail}</td><td class="num">${rate(d.ok, d.sets)}</td></tr>`).join('');
-  const sum = days.reduce((a, d) => ({ sets: a.sets + d.sets, ok: a.ok + d.ok, fail: a.fail + d.fail }), { sets: 0, ok: 0, fail: 0 });
-  foot.innerHTML = `<tr><td>Total</td><td class="num">${sum.sets}</td><td class="num">${sum.ok}</td>` +
-    `<td class="num">${sum.fail}</td><td class="num">${rate(sum.ok, sum.sets)}</td></tr>`;
+  const cells = (r) => `<td class="num">${r.sets}</td><td class="num">${r.ok}</td>` +
+    `<td class="num${r.fail ? ' bad' : ''}">${r.fail}</td><td class="num">${rate(r.ok, r.sets)}</td>`;
+  let html = '';
+  for (const d of dailyData) {
+    const open = openDays.has(d.date);
+    html += `<tr class="day" data-date="${esc(d.date)}" title="Click to ${open ? 'hide' : 'show'} the hours">` +
+      `<td><span class="caret">${open ? '▾' : '▸'}</span> ${esc(d.date)}</td>${cells(d)}</tr>`;
+    if (open) {
+      for (const h of d.hours || []) {
+        const label = h.hour < 0 ? 'unknown' : String(h.hour).padStart(2, '0') + ':00';
+        html += `<tr class="hour"><td>${label}</td>${cells(h)}</tr>`;
+      }
+    }
+  }
+  tbody.innerHTML = html;
+  const sum = dailyData.reduce((a, d) => ({ sets: a.sets + d.sets, ok: a.ok + d.ok, fail: a.fail + d.fail }), { sets: 0, ok: 0, fail: 0 });
+  foot.innerHTML = `<tr><td>Total</td>${cells(sum)}</tr>`;
 }
+
+$('dailyRows').onclick = (ev) => {
+  const row = ev.target.closest('tr.day');
+  if (!row) return;
+  const date = row.dataset.date;
+  if (openDays.has(date)) openDays.delete(date); else openDays.add(date);
+  renderDaily();
+};
 
 async function loadDaily() {
   try { renderDaily(await fetch('/api/qr/daily').then((r) => r.json())); } catch (e) {}

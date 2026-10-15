@@ -65,8 +65,9 @@ class ShoeIndex:
 
     def daily(self):
         """QR reading per day, counted in sets (one shoe pass each), newest day first:
-        [{"date": "2026-10-15", "sets": 40, "ok": 36, "fail": 4}]. ok = the set got a QR value, fail = it
-        did not. The day is the capture date of the set's first cut."""
+        [{"date": "2026-10-15", "sets": 40, "ok": 36, "fail": 4, "hours": [{"hour": 9, "sets": .., "ok": .., "fail": ..}]}].
+        ok = the set got a QR value, fail = it did not. The day and the hour (0-23, oldest first) are those of
+        the set's first cut."""
         passes = {}   # pass id -> [first time, has a QR value]
         for info in self._index().values():
             if info["primary"] not in self._present(info):
@@ -76,9 +77,15 @@ class ShoeIndex:
             p[1] = p[1] or info["shoe_id"] is not None
         days = {}
         for first, ok in passes.values():
-            d = days.setdefault(first[:10] or "unknown", {"date": first[:10] or "unknown", "sets": 0, "ok": 0, "fail": 0})
-            d["sets"] += 1
-            d["ok" if ok else "fail"] += 1
+            date = first[:10] or "unknown"
+            d = days.setdefault(date, {"date": date, "sets": 0, "ok": 0, "fail": 0, "hours": {}})
+            hour = int(first[11:13]) if first[11:13].isdigit() else -1
+            h = d["hours"].setdefault(hour, {"hour": hour, "sets": 0, "ok": 0, "fail": 0})
+            for bucket in (d, h):
+                bucket["sets"] += 1
+                bucket["ok" if ok else "fail"] += 1
+        for d in days.values():
+            d["hours"] = sorted(d["hours"].values(), key=lambda h: h["hour"])
         return sorted(days.values(), key=lambda d: d["date"], reverse=True)
 
     def shoes(self):
