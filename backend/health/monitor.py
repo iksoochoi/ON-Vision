@@ -9,9 +9,11 @@ silent, restarts it.
   CAMERA_RESTART   a camera has been stalled for ON_HEALTH_RESTART_SEC seconds: its pipeline is closed and opened
                    again (slot.request_restart; the other cameras keep running). Tried again every 30 s while it
                    stays silent. 0 = never restart.
-  APP_RESTART      ON_HEALTH_RESTART_MAX restarts within 10 minutes did not help: the alert is sent and the app
-                   exits, so that the service manager (launchd KeepAlive) starts it again. (A restart by hand with
-                   ./bin/run.sh is not started again.)
+  APP_RESTART      the restarts did not help: ON_HEALTH_RESTART_MAX restarts within 10 minutes and the camera is
+                   still silent, or a camera that was restarted here does not come back online within
+                   ON_HEALTH_RESTART_SEC (a device that was closed can fail to show up again in the same process).
+                   The alert is sent and the app exits, so that the service manager (launchd KeepAlive) starts it
+                   again with a fresh USB scan. (A restart by hand with ./bin/run.sh is not started again.)
   CAMERA_RECOVERED the stream is back / the camera is online again (sent only if the problem was sent).
   STATUS           every ON_HEALTH_STATUS_SEC seconds: one line with every camera's fps and picture age, plus the
                    load of the Mac, so the minutes before a stall can be read from the log.
@@ -86,7 +88,7 @@ class HealthMonitor(threading.Thread):
 
     def _st(self, role):
         return self._state.setdefault(role, {"offline_since": None, "down": False, "stalled": False, "stalled_since": None,
-                                             "restarts": [], "last_restart": None})
+                                             "restarts": [], "last_restart": None, "restarted_at": None})
 
     def check(self, now=None):
         """One look at every camera; reports changes. Returns the events' kinds (for tests)."""
@@ -105,6 +107,11 @@ class HealthMonitor(threading.Thread):
                     collect.emit("CAMERA_DOWN", "ERROR", f"camera has been offline for {int(now - st['offline_since'])} s: "
                                  f"{slot.error or 'unknown'}", camera=slot.role, snapshot=self.snapshot(now),
                                  usb=slot.usb_speed or "?")
+                since = st["restarted_at"]
+                if C.HEALTH_RESTART_SEC and since is not None and now - since >= C.HEALTH_RESTART_SEC:
+                    kinds.append("APP_RESTART")   # we restarted it and it did not come back
+                    self._give_up(slot, f"camera {slot.role} did not come back online within "
+                                  f"{int(now - since)} s after its restart: restarting the whole app", now)
                 continue
             if st["offline_since"] is not None:
                 was_down, since = st["down"], st["offline_since"]
@@ -127,7 +134,7 @@ class HealthMonitor(threading.Thread):
                              fps=f"{slot.fps().get('full')}/{slot.fps().get('preview')}")
             elif st["stalled"] and age < min(1.0, C.HEALTH_STALL_SEC):
                 lasted = now - (st["stalled_since"] or now)
-                st["stalled"], st["stalled_since"] = False, None
+                st["stalled"], st["stalled_since"], st["restarted_at"] = False, None, None
                 kinds.append("CAMERA_RECOVERED")
                 collect.emit("CAMERA_RECOVERED", "INFO", f"pictures are coming again after about {int(lasted)} s",
                              camera=slot.role, recovers=[("CAMERA_STALLED", slot.role)])
@@ -151,21 +158,20 @@ class HealthMonitor(threading.Thread):
         st["restarts"] = recent = [t for t in st["restarts"] if now - t < RESTART_WINDOW_SEC]
         if len(recent) >= C.HEALTH_RESTART_MAX:
             kinds.append("APP_RESTART")
-            self._give_up(slot, age, len(recent), now)
+            self._give_up(slot, f"camera {slot.role} is still silent ({age:.0f} s) after {len(recent)} restarts: "
+                          "restarting the whole app", now)
             return
         recent.append(now)
-        st["last_restart"] = now
+        st["last_restart"] = st["restarted_at"] = now
         kinds.append("CAMERA_RESTART")
         collect.emit("CAMERA_RESTART", "WARNING",
                      f"no picture for {age:.0f} s: restarting the camera (attempt {len(recent)}/{C.HEALTH_RESTART_MAX})",
                      camera=slot.role, snapshot=self.snapshot(now))
         slot.request_restart()
 
-    def _give_up(self, slot, age, tries, now):
-        """The camera is still silent after the restarts: tell the chat, then end the app (launchd starts it again)."""
-        collect.emit("APP_RESTART", "ERROR",
-                     f"camera {slot.role} is still silent ({age:.0f} s) after {tries} restarts: restarting the whole app",
-                     camera=slot.role, snapshot=self.snapshot(now))
+    def _give_up(self, slot, message, now):
+        """The restarts did not help: tell the chat, then end the app (launchd starts it again)."""
+        collect.emit("APP_RESTART", "ERROR", message, camera=slot.role, snapshot=self.snapshot(now))
         try:   # send now: nothing is left to send it after the exit (no waiting between the retries)
             alerts.flush(sleep=lambda _seconds: None)
         except Exception as e:

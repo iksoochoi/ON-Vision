@@ -256,10 +256,11 @@ HEALTH_STALL_SEC = max(1.0, _env("ON_HEALTH_STALL_SEC", 5.0, float))
 HEALTH_OFFLINE_SEC = max(5.0, _env("ON_HEALTH_OFFLINE_SEC", 60.0, float))
 HEALTH_STATUS_SEC = max(0.0, _env("ON_HEALTH_STATUS_SEC", 60.0, float))
 # A camera that stays "stalled" this long is restarted (only that camera: its pipeline is closed and opened
-# again). 0 = never restart, only report. If HEALTH_RESTART_MAX restarts within 10 minutes did not help, the
-# whole app exits and the service manager (launchd KeepAlive) starts it again.
+# again). 0 = never restart, only report. If HEALTH_RESTART_MAX restarts within 10 minutes did not help, or a
+# restarted camera does not come back online within HEALTH_RESTART_SEC, the whole app exits and the service
+# manager (launchd KeepAlive) starts it again.
 HEALTH_RESTART_SEC = max(0.0, _env("ON_HEALTH_RESTART_SEC", 60.0, float))
-HEALTH_RESTART_MAX = max(1, _env("ON_HEALTH_RESTART_MAX", 3, int))
+HEALTH_RESTART_MAX = max(1, _env("ON_HEALTH_RESTART_MAX", 2, int))
 
 # ---- alerts for failures of the data collection: a Google Chat webhook (backend/health/alerts.py) ------------
 # The webhook URL is a secret (it carries a key and a token): it lives in .env, which is not in git, and is
