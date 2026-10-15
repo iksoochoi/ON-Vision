@@ -47,7 +47,9 @@ class QrScanner(threading.Thread):
                         size = ...   # not measured: the QR page keeps the last size
                     hub.mark_scanned(self.slot.role, bool(found), size)
                     for code in found:
-                        hub.add(self.slot.role, code["text"], "live")
+                        xs = [p[0] for p in code.get("points") or []]
+                        hub.add(self.slot.role, code["text"], "live", frame_ts=last_ts,
+                                cx=sum(xs) / len(xs) if xs else None)
             # keep the rate: the time the scan took counts as part of the interval
             if self.stop_event.wait(max(0.0, interval - (time.monotonic() - started))):
                 return

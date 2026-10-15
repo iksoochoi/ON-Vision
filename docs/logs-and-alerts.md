@@ -14,6 +14,8 @@
 | `fault.log` | 앱이 네이티브 코드에서 치명적으로 죽었을 때(segfault) 남는 스택 | 작음 |
 | `labeler.log` | 서비스(launchd)가 받은 원본 출력. 예전과 같고, 시각이 없음 | 계속 커짐 |
 
+각 파일에 **무엇이 남는지**는 [`logs/README.md`](../logs/README.md)에 정리되어 있습니다.
+
 보는 법(서비스로 돌릴 때):
 ```bash
 ./bin/install_launchd.sh logs            # app.log (기본)
@@ -38,6 +40,7 @@
 | `CAPTURE_PARTIAL` | 신발 한 번의 캡처에서 **일부 카메라 사진이 빠짐**. 어느 카메라가 왜(`offline`, `stale frame ...`) 빠졌는지 | O |
 | `CAPTURE_FAILED` | 한 장도 저장하지 못함 | O |
 | `CAPTURE_DROPPED` / `CAPTURE_SKIPPED` | 저장이 밀려 버려졌음 / 기준 카메라 사진이 없어 건너뜀 | O |
+| `QR_CONFLICT` | 한 신발 캡처에서 서로 다른 QR 값이 읽힘(이웃 신발의 QR 가능성). 고른 값과 뺀 값이 적힘 | 아니오 |
 | `DISK_STOP` | 디스크가 가득 차서 자동 캡처가 꺼짐 | O |
 | `ABNORMAL_RESTART` | 앱이 지난번에 **정상 종료 없이** 끝났음(충돌, `kill -9`, 정전) | O |
 | `APP_ERROR` | 스레드나 프로그램이 예외로 죽음 | O |

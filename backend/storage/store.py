@@ -73,13 +73,15 @@ class SampleStore:
         ids = self.enqueue_burst([(views, meta)])
         return ids[0] if ids else None
 
-    def enqueue_burst(self, sets, qr_window=None):
+    def enqueue_burst(self, sets, qr_window=None, center_ts=None):
         """Queue the sets of one capture, [(views, meta), ...], to be saved together: the shoe's QR value
         is looked for in ALL their pictures first and put in front of every file name, so the shots of a
         shoe pass are named alike even when the code is visible in only one of them.
         qr_window = (since, until) in epoch seconds: live QR reads in it count for this capture, and the
         writer waits (at most until `until`) for one if nothing else gave a code. Default: the last
         ON_QR_LIVE_WINDOW_SEC seconds, no waiting (manual captures).
+        center_ts = the frame time of the center shot (automatic captures): the shoe being saved is in the middle of
+        the pictures then, which tells its QR code from its neighbours' (see ON_QR_CENTER_BAND).
         Returns the base ids, or [] if the writer is backed up (nothing is saved then).
 
         views: one BGR image, or {role: image or frame object with getCvFrame()}. The first entry
@@ -103,7 +105,7 @@ class SampleStore:
         now = time.time()
         window = qr_window or (now - C.QR_LIVE_WINDOW_SEC, now)
         try:
-            self._queue.put_nowait((items, now, window))
+            self._queue.put_nowait((items, now, window, center_ts))
         except queue.Full:
             print("Sample writer backed up - capture dropped")
             capture_log.event("DROPPED", items[0][2].get("source") or "?",
@@ -130,16 +132,16 @@ class SampleStore:
 
     def _worker(self):
         while True:
-            sets, enqueued, window = self._queue.get()
+            sets, enqueued, window, center_ts = self._queue.get()
             try:
-                self._save_job(sets, enqueued, window)
+                self._save_job(sets, enqueued, window, center_ts)
             except Exception as e:   # the writer must survive whatever one capture does
                 print(f"Sample save failed: {e}")
             finally:
                 for sample_id, _, _ in sets:
                     self._reserved.discard(sample_id)
 
-    def _save_job(self, sets, enqueued, window):
+    def _save_job(self, sets, enqueued, window, center_ts=None):
         """Save the sets of one capture: pictures and QR codes first, then the shoe's QR value is
         found for the whole capture (see _resolve_shoe), then every set is written under a name that
         starts with it."""
@@ -150,7 +152,8 @@ class SampleStore:
             except Exception as e:
                 print(f"Sample save failed ({sample_id}): {e}")
                 results.append({"id": sample_id, "saved": [], "missing": {}, "error": str(e)})
-        shoe = resolve_shoe(prepared, enqueued, window)
+        shoe = resolve_shoe(prepared, enqueued, window, center_ts)
+        self._report_conflict(sets, shoe)
         for base_id, meta, images, codes in prepared:
             results.append(self._write_set(base_id, meta, images, codes, shoe))
         try:   # the capture log: what was saved, per camera, and how much there is now
@@ -191,6 +194,24 @@ class SampleStore:
             except Exception as e:  # QR is best effort: never lose the images for it
                 print(f"QR decode failed ({sample_id}): {e}")
         return sample_id, meta, images, codes
+
+    @staticmethod
+    def _report_conflict(sets, shoe):
+        """Another QR value was read for the same shoe pass (a neighbour's, or a wrong read): to collect.log, no alert."""
+        text, source, others = shoe
+        if not others:
+            return
+        first = sets[0][2]
+        burst = (first.get("burst") or {}).get("id") or first["id"]
+        if text:
+            msg = f"read {text!r} [{source}] but also {others!r}; the one near the middle of the picture was taken"
+        else:
+            msg = f"only codes away from the middle of the picture were read: {others!r}; left out as a neighbour's"
+        try:   # a log line must never get in the way of saving
+            from ..health import collect
+            collect.emit("QR_CONFLICT", "WARNING", msg, alert=False, set=burst)
+        except Exception as e:
+            print(f"[qr] could not log the QR conflict: {e}")
 
     def _write_set(self, base_id, meta, images, codes, shoe):
         """Write one prepared set under its final id: the shoe's QR value + the capture time."""

@@ -91,4 +91,5 @@ ON_TARGET_CLASSES=shoe
 | [ui-guide.md](docs/ui-guide.md) | 실시간 화면, 이미지 조회 |
 | [storage-and-qr.md](docs/storage-and-qr.md) | 저장 구조, 신발 ID(QR) 찾는 순서 |
 | [capture-log.md](docs/capture-log.md) | `logs/capture.log` 형식과 읽는 법 |
+| [logs/README.md](logs/README.md) | 로그 파일마다 어떤 정보가 남는지 |
 | [logs-and-alerts.md](docs/logs-and-alerts.md) | 로그 파일(app/collect/run), 카메라 감시, 수집 문제 Google Chat 알림 설정 |

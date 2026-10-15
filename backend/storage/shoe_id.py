@@ -12,11 +12,37 @@ from ..qr.hub import hub as qr_hub
 ZOOM_THREADS = 4   # pictures searched at the same time in the zoom step
 
 
-def vote(codes):
-    """(text, others): the value read most often among `codes`, and the other values, or (None, [])."""
-    votes = Counter(c["text"].strip() for c in codes if c["text"].strip())
-    ranked = [text for text, _ in votes.most_common()]
-    return (ranked[0], ranked[1:]) if ranked else (None, [])
+def weight(cx, band):
+    """How much a code at horizontal place cx (0..1 of the picture) counts for the shoe in the middle of it:
+    1 in the middle, falling to 0 at `band` (a fraction of the width) from it. band 0 / unknown place = 1."""
+    if not band or cx is None:
+        return 1.0
+    return max(0.0, 1.0 - abs(cx - 0.5) / band)
+
+
+def code_x(code):
+    """The horizontal place (0..1) of a read code in its picture, None when it is not known."""
+    xs = [p[0] for p in code.get("points") or []]
+    return sum(xs) / len(xs) if xs else None
+
+
+def vote(codes, band=0.0):
+    """(text, others): the value with the most weight among `codes` (a code in the middle of the picture counts
+    more than one further out, see weight), and the other values. With `band`, codes outside it do not count:
+    if there is nothing else, (None, [the values that were left out])."""
+    score, order = Counter(), []
+    for c in codes:
+        text = c["text"].strip()
+        if not text:
+            continue
+        if text not in order:
+            order.append(text)
+        score[text] += weight(code_x(c), band)
+    winners = [t for t in order if score[t] > 0]
+    if not winners:
+        return None, order
+    top = max(winners, key=lambda t: (score[t], -order.index(t)))
+    return top, [t for t in order if t != top]
 
 
 def qr_sizes(meta):
@@ -33,12 +59,17 @@ def qr_sizes(meta):
     return out
 
 
-def live_hit(since, until, enqueued):
-    """The live scanners' code in [since, until], as (text, source) or None."""
-    hit = qr_hub.live_code(since, until)
+def live_hit(since, until, enqueued, center_ts=None, band=0.0):
+    """The live scanners' code for this shoe pass: (text, source, others) or None. With a band and the time of
+    the center shot (automatic captures) it is the code in the middle of the picture around that moment, else
+    the code read most often in [since, until] (epoch seconds)."""
+    if band and center_ts is not None:
+        hit, others = qr_hub.live_code_at(center_ts, C.QR_MATCH_SEC, band)
+    else:
+        hit, others = qr_hub.live_code(since, until), []
     if hit and hit["text"].strip():
-        return hit["text"].strip(), "live_late" if hit["epoch"] > enqueued else "live"
-    return None
+        return hit["text"].strip(), "live_late" if hit["epoch"] > enqueued else "live", others
+    return None, None, others
 
 
 def zoom_search(prepared):
@@ -72,32 +103,46 @@ def zoom_search(prepared):
         pool.shutdown(wait=False, cancel_futures=True)
 
 
-def resolve_shoe(prepared, enqueued, window):
-    """The shoe's QR value for the whole capture: (text, source, others) or (None, None, []).
+def resolve_shoe(prepared, enqueued, window, center_ts=None):
+    """The shoe's QR value for the whole capture: (text, source, others) or (None, None, ignored).
     Sources, in the order they are tried:
       capture       read in the saved pictures of the shoe pass (all shots, the QR cameras)
-      live          the live scanner read it while the shoe passed (window[0] .. window[1])
+      live          the live scanner read it while the shoe passed
       capture_zoom  read in the saved pictures after searching them in enlarged tiles
-      live_late     the live scanner read it after the capture, within the wait (up to window[1])
-    Live reads are always looked up in the whole window [since, until]: a slow search must not make
-    the writer miss a code that was read while it was busy."""
+      live_late     the live scanner read it after the capture, within the wait
+    center_ts: the time of the center shot (automatic captures). With ON_QR_CENTER_BAND the codes are then
+    weighted by how close to the middle of the picture they are (the shoe being saved is in the middle, its
+    neighbours are further out) and the live reads count only around that moment. `others`: the other values
+    that were read (a neighbour's), also when nothing was chosen.
+    Live reads are looked up again and again until window[1]: a slow search must not make the writer miss a
+    code that was read while it was busy."""
     since, until = window
     if not C.QR_ENABLED:
         return None, None, []
-    text, others = vote([c for _, _, _, codes in prepared for c in codes])
+    band = C.QR_CENTER_BAND if center_ts is not None else 0.0
+    ignored = []
+
+    def note(texts):
+        ignored.extend(t for t in texts if t not in ignored)
+
+    text, others = vote([c for _, _, _, codes in prepared for c in codes], band)
     if text:
         return text, "capture", others
-    hit = live_hit(since, until, enqueued)
-    if hit:
-        return hit[0], hit[1], []
+    note(others)
+    text, source, others = live_hit(since, until, enqueued, center_ts, band)
+    if text:
+        return text, source, others
+    note(others)
     if C.QR_ZOOM:
-        text, others = vote(zoom_search(prepared))
+        text, others = vote(zoom_search(prepared), band)
         if text:
             return text, "capture_zoom", others
+        note(others)
     while True:   # nothing yet: the code may be read a moment after the capture
-        hit = live_hit(since, until, enqueued)
-        if hit:
-            return hit[0], hit[1], []
+        text, source, others = live_hit(since, until, enqueued, center_ts, band)
+        if text:
+            return text, source, others
+        note(others)
         if time.time() >= until:
-            return None, None, []
+            return None, None, ignored
         time.sleep(0.2)

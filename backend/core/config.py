@@ -211,6 +211,13 @@ QR_CAMERAS = [r.strip().lower() for r in _env("ON_QR_CAMERAS", "").split(",") if
 QR_LIVE_WINDOW_SEC = max(0.0, _env("ON_QR_LIVE_WINDOW_SEC", 3.0, float))  # live reads count from this long before the first shot
 QR_WAIT_SEC = max(0.0, _env("ON_QR_WAIT_SEC", 4.0, float))                # ... until this long after the last shot (auto captures)
 QR_ZOOM = _env("ON_QR_ZOOM", 1, int) != 0                                 # step 3
+# Which shoe a code belongs to when shoes pass close together (automatic captures only). At the moment of the
+# center shot the shoe being saved is in the middle of the picture, its neighbours are further out. A code counts
+# for this shoe with a weight that is 1 in the middle of the picture and falls to 0 at this distance from it
+# (fraction of the picture width); a code further out is a neighbour's and is ignored. 0 = off (every code counts).
+QR_CENTER_BAND = min(0.5, max(0.0, _env("ON_QR_CENTER_BAND", 0.4, float)))
+# With the band on, live reads count only from frames this close (seconds) to the center shot
+QR_MATCH_SEC = max(0.1, _env("ON_QR_MATCH_SEC", 1.0, float))
 
 
 def _parse_roi(text):

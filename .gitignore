@@ -1,6 +1,7 @@
 # runtime data
 /captures/
-/logs/
+/logs/*
+!/logs/README.md
 /exports/
 
 # python

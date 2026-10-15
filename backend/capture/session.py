@@ -175,7 +175,10 @@ def qr_window(shots, latest_ts, now):
     the age of the first one is measured against the newest frame (latest_ts), then taken off `now`."""
     first = min((s.ts for s in shots), default=latest_ts)
     age = max(0.0, latest_ts - first) if latest_ts is not None and first is not None else 0.0
-    return now - age - C.QR_LIVE_WINDOW_SEC, now + C.QR_WAIT_SEC
+    wait = C.QR_WAIT_SEC
+    if C.QR_CENTER_BAND:   # only frames around the center shot count: no need to wait longer than they take
+        wait = min(wait, C.QR_MATCH_SEC + 0.5)
+    return now - age - C.QR_LIVE_WINDOW_SEC, now + wait
 
 
 def _count_auto(n):
@@ -305,7 +308,8 @@ class TriggerSession:
         # then goes in front of the file names of every shot
         latest = registry.trigger.latest()
         window = qr_window(shots, latest[0] if latest else None, time.time())
-        saved = store.enqueue_burst(jobs, qr_window=window) if jobs else []
+        center_ts = next((s.ts for s in shots if s.kind == "center"), None)
+        saved = store.enqueue_burst(jobs, qr_window=window, center_ts=center_ts) if jobs else []
         if saved:
             _count_auto(1)   # one shoe pass = one set, however many cuts it has
             broadcast({"key": "auto_capture"})
