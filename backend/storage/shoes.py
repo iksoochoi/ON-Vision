@@ -8,6 +8,14 @@ from ..core.config import SETS_DIR
 from .paths import image_path, primary_role, time_key
 
 
+SIZE_EDGES = (60, 80, 100, 130, 170)   # QR size classes in pixels: <60, 60-79, 80-99, 100-129, 130-169, 170+
+SIZE_LABELS = ["<60", "60-79", "80-99", "100-129", "130-169", "170+"]
+
+
+def _size_class(px):
+    return sum(1 for edge in SIZE_EDGES if px >= edge)
+
+
 class ShoeIndex:
     def __init__(self, get):
         self._get = get   # SampleStore.get: a set's JSON by id
@@ -17,9 +25,15 @@ class ShoeIndex:
     @staticmethod
     def _summary(meta):
         burst = meta.get("burst") or {}
+        read = [c["size_px"] for c in meta.get("qr") or [] if c.get("size_px")]
+        seen = [v["qr_seen_px"] for v in (meta.get("views") or {}).values()
+                if isinstance(v, dict) and v.get("qr_seen_px")]
         return {"id": meta["id"], "shoe_id": meta.get("shoe_id") or None, "time": meta.get("timestamp") or "",
                 "burst": burst.get("id"), "kind": burst.get("kind"), "primary": primary_role(meta),
-                "views": list(meta.get("views") or [primary_role(meta)])}
+                "views": list(meta.get("views") or [primary_role(meta)]),
+                "source": meta.get("shoe_id_source"),   # where the QR value came from (capture, live, ...)
+                "read_px": max(read) if read else None,   # size of the biggest code that was read in a picture
+                "seen_px": max(seen) if seen else None}   # size of a code that was located but not read
 
     def _index(self):
         """A short summary of every set file, {file stem: summary}. Kept in memory and refreshed from the
@@ -64,29 +78,52 @@ class ShoeIndex:
                 "no_id_sets": sum(s["sets"] for s in shoes if s["shoe_id"] is None)}
 
     def daily(self):
-        """QR reading per day, counted in sets (one shoe pass each), newest day first:
-        [{"date": "2026-10-15", "sets": 40, "ok": 36, "fail": 4, "hours": [{"hour": 9, "sets": .., "ok": .., "fail": ..}]}].
-        ok = the set got a QR value, fail = it did not. The day and the hour (0-23, oldest first) are those of
-        the set's first cut."""
-        passes = {}   # pass id -> [first time, has a QR value]
+        """QR reading per day, counted in sets (one shoe pass each):
+        {"days": [{"date": "2026-10-15", "sets": 40, "ok": 36, "fail": 4, "seen": 3,
+                   "hours": [{"hour": 9, "sets": .., "ok": .., "fail": .., "seen": ..}]}],   newest day first
+         "sizes": {"labels": [...], "read": [n per size class], "unread": [...], "read_no_size": n},
+         "sources": {"capture": n, "live": n, ...}}
+        ok = the set got a QR value, fail = it did not; seen = of the failed sets, those where a QR code was located
+        in a picture but could not be read (fail - seen = no code was seen at all). The day and the hour (0-23,
+        oldest first) are those of the set's first cut. sizes: how big the code was in the picture (px, the biggest
+        per set): of the sets where it was read, and of those where it was located but not readable."""
+        passes = {}   # pass id -> {"time", "ok", "source", "read_px", "seen_px"}
         for info in self._index().values():
             if info["primary"] not in self._present(info):
                 continue   # its pictures were deleted: only the set file is left over
-            p = passes.setdefault(info["burst"] or info["id"], [info["time"], False])
-            p[0] = min(p[0], info["time"])
-            p[1] = p[1] or info["shoe_id"] is not None
-        days = {}
-        for first, ok in passes.values():
-            date = first[:10] or "unknown"
-            d = days.setdefault(date, {"date": date, "sets": 0, "ok": 0, "fail": 0, "hours": {}})
-            hour = int(first[11:13]) if first[11:13].isdigit() else -1
-            h = d["hours"].setdefault(hour, {"hour": hour, "sets": 0, "ok": 0, "fail": 0})
+            p = passes.setdefault(info["burst"] or info["id"], {"time": info["time"], "ok": False, "source": None,
+                                                                "read_px": None, "seen_px": None})
+            p["time"] = min(p["time"], info["time"])
+            if info["shoe_id"] is not None:
+                p["ok"], p["source"] = True, p["source"] or info["source"]
+            for key in ("read_px", "seen_px"):
+                if info.get(key):
+                    p[key] = max(p[key] or 0, info[key])
+        days, sources = {}, {}
+        sizes = {"labels": SIZE_LABELS, "read": [0] * len(SIZE_LABELS), "unread": [0] * len(SIZE_LABELS),
+                 "read_no_size": 0}
+        for p in passes.values():
+            date = p["time"][:10] or "unknown"
+            d = days.setdefault(date, {"date": date, "sets": 0, "ok": 0, "fail": 0, "seen": 0, "hours": {}})
+            hour = int(p["time"][11:13]) if p["time"][11:13].isdigit() else -1
+            h = d["hours"].setdefault(hour, {"hour": hour, "sets": 0, "ok": 0, "fail": 0, "seen": 0})
+            seen = not p["ok"] and p["seen_px"] is not None
             for bucket in (d, h):
                 bucket["sets"] += 1
-                bucket["ok" if ok else "fail"] += 1
+                bucket["ok" if p["ok"] else "fail"] += 1
+                bucket["seen"] += 1 if seen else 0
+            if p["ok"]:
+                source = p["source"] or "unknown"
+                sources[source] = sources.get(source, 0) + 1
+                if p["read_px"]:
+                    sizes["read"][_size_class(p["read_px"])] += 1
+                else:
+                    sizes["read_no_size"] += 1
+            elif seen:
+                sizes["unread"][_size_class(p["seen_px"])] += 1
         for d in days.values():
             d["hours"] = sorted(d["hours"].values(), key=lambda h: h["hour"])
-        return sorted(days.values(), key=lambda d: d["date"], reverse=True)
+        return {"days": sorted(days.values(), key=lambda d: d["date"], reverse=True), "sizes": sizes, "sources": sources}
 
     def shoes(self):
         """Every shoe (QR value) that has sets, most recently captured first; the pictures without a QR

@@ -67,9 +67,15 @@ function renderRows() {
 
 const openDays = new Set();   // dates whose hours are shown
 let dailyData = [];
+let sizeData = null, sourceData = {};
 
-function renderDaily(days) {
-  if (days) dailyData = days;
+function renderDaily(data) {
+  if (data) {
+    dailyData = data.days || [];
+    sizeData = data.sizes || null;
+    sourceData = data.sources || {};
+  }
+  renderSizes();
   const tbody = $('dailyRows'), foot = $('dailyTotal');
   if (!dailyData.length) {
     tbody.innerHTML = '<tr><td colspan="5" class="empty-row">None yet</td></tr>';
@@ -78,7 +84,8 @@ function renderDaily(days) {
   }
   const rate = (ok, n) => (n ? (100 * ok / n).toFixed(1) + '%' : '-');
   const cells = (r) => `<td class="num">${r.sets}</td><td class="num">${r.ok}</td>` +
-    `<td class="num${r.fail ? ' bad' : ''}">${r.fail}</td><td class="num">${rate(r.ok, r.sets)}</td>`;
+    `<td class="num${r.fail ? ' bad' : ''}">${r.fail}${r.fail ? ` <small class="dim">(${r.seen} seen)</small>` : ''}</td>` +
+    `<td class="num">${rate(r.ok, r.sets)}</td>`;
   let html = '';
   for (const d of dailyData) {
     const open = openDays.has(d.date);
@@ -92,8 +99,28 @@ function renderDaily(days) {
     }
   }
   tbody.innerHTML = html;
-  const sum = dailyData.reduce((a, d) => ({ sets: a.sets + d.sets, ok: a.ok + d.ok, fail: a.fail + d.fail }), { sets: 0, ok: 0, fail: 0 });
+  const sum = dailyData.reduce((a, d) => ({ sets: a.sets + d.sets, ok: a.ok + d.ok, fail: a.fail + d.fail, seen: a.seen + d.seen }),
+    { sets: 0, ok: 0, fail: 0, seen: 0 });
   foot.innerHTML = `<tr><td>Total</td>${cells(sum)}</tr>`;
+}
+
+function renderSizes() {
+  const tbody = $('sizeRows');
+  if (!sizeData) return;
+  const sum = (list) => list.reduce((a, b) => a + b, 0);
+  if (!sum(sizeData.read) + sizeData.read_no_size + sum(sizeData.unread)) {
+    tbody.innerHTML = '<tr><td colspan="3" class="empty-row">None yet</td></tr>';
+  } else {
+    let html = sizeData.labels.map((label, i) =>
+      `<tr><td>${esc(label)}</td><td class="num">${sizeData.read[i] || '-'}</td>` +
+      `<td class="num${sizeData.unread[i] ? ' bad' : ''}">${sizeData.unread[i] || '-'}</td></tr>`).join('');
+    if (sizeData.read_no_size) {
+      html += `<tr class="hour"><td>read by the live scan (no size)</td><td class="num">${sizeData.read_no_size}</td><td class="num">-</td></tr>`;
+    }
+    tbody.innerHTML = html;
+  }
+  const parts = Object.entries(sourceData).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`);
+  $('sourceLine').textContent = parts.length ? 'Where the value was read: ' + parts.join(', ') : '';
 }
 
 $('dailyRows').onclick = (ev) => {

@@ -58,11 +58,20 @@
     <div class="card">
       <h3>QR success by day (per set)</h3>
       <table class="qr-table">
-        <thead><tr><th>Date</th><th class="num">Sets</th><th class="num">Read</th><th class="num">Not read</th><th class="num">Rate</th></tr></thead>
+        <thead><tr><th>Date</th><th class="num">Sets</th><th class="num">Read</th><th class="num" title="Sets without a QR value. In brackets: of those, a code was located in a picture but could not be read">Not read</th><th class="num">Rate</th></tr></thead>
         <tbody id="dailyRows"><tr><td colspan="5" class="empty-row">None yet</td></tr></tbody>
         <tfoot id="dailyTotal"></tfoot>
       </table>
       <div class="hint">A set is one shoe pass (all cameras, before / center / after). Read = the set got a QR value, Not read = it is saved without one. The day is the capture date. Click a date to see its hours (0-23).</div>
+    </div>
+    <div class="card">
+      <h3>QR size in the picture (per set)</h3>
+      <table class="qr-table">
+        <thead><tr><th>Size (px)</th><th class="num">Read</th><th class="num">Seen, not readable</th></tr></thead>
+        <tbody id="sizeRows"><tr><td colspan="3" class="empty-row">None yet</td></tr></tbody>
+      </table>
+      <div class="hint" id="sourceLine"></div>
+      <div class="hint">The side of the biggest code in the picture. Codes of about 100 px and more are usually readable: a set that was seen at that size but not read points at blur, glare or focus rather than size. Seen = a code was located but could not be read.</div>
     </div>
    </aside>
   </div>

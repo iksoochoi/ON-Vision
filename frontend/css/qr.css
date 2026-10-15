@@ -3,6 +3,7 @@
 @media (max-width: 1100px) { .qr-page { grid-template-columns: minmax(0, 1fr); } }
 .qr-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .qr-table td.bad { color: var(--warn); font-weight: 680; }
+.qr-table small.dim { color: var(--dim); font-weight: 400; }
 .qr-table tr.day { cursor: pointer; }
 .qr-table tr.day:hover td { background: rgba(255, 255, 255, 0.04); }
 .qr-table .caret { display: inline-block; width: 1em; color: var(--dim); }
