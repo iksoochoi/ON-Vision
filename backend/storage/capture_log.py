@@ -73,8 +73,19 @@ def start(info):
         _write("START", info)
 
 
+def _report(call, *args):
+    """Tell the collection log / alerts (backend/health/collect.py) about a capture that went wrong. This
+    does not depend on ON_CAPTURE_LOG, and it never raises."""
+    try:
+        from ..health import collect
+        getattr(collect, call)(*args)
+    except Exception as e:
+        print(f"[capture log] could not report to the collection log: {e}")
+
+
 def event(status, source, text):
     """A capture that did not reach the disk: status DROPPED or SKIPPED."""
+    _report("capture_lost", status, source, text.strip())
     if not C.CAPTURE_LOG:
         return
     with _lock:
@@ -96,7 +107,7 @@ def job(source, results, shoe, expected, took, totals, burst=None):
     shoe     (text, source, others) of the QR value, or (None, None, [])
     expected the cameras that should each have a picture in every cut (all configured cameras)
     totals   what is saved now: {"sets", "cuts", "images", "shoes", "no_id_sets"}"""
-    if not C.CAPTURE_LOG or not results:
+    if not results:
         return
     cuts, per_camera, saved_total = len(results), [], 0
     cameras_ok = 0
@@ -112,6 +123,10 @@ def job(source, results, shoe, expected, took, totals, burst=None):
         per_camera.append(f"{role} {ok}/{cuts}" + (f" [{'; '.join(why)}]" if ok < cuts and why else ""))
     wanted = cuts * len(expected)
     status = "SAVED" if saved_total == wanted else ("FAILED" if saved_total == 0 else "PARTIAL")
+    if status != "SAVED":
+        _report("capture_problem", status, source, results, per_camera, burst)
+    if not C.CAPTURE_LOG:
+        return
     text, how, others = shoe
     shoe_text = f"shoe={_quote(text)}({how})" if text else "shoe=-"
     shoe_text += " qr_px=" + _qr_px_text(results)

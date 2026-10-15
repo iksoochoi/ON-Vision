@@ -79,6 +79,12 @@ def enforce(fresh=False):
               "automatic capture stopped")
         broadcast({"key": "auto_enabled", "value": False})
         broadcast({"key": "disk"})
+        try:   # the collection log and the alerts (backend/health)
+            from ..health import collect
+            collect.emit("DISK_STOP", "ERROR", f"the disk is {s['used_pct']}% full (limit {s['limit_pct']:g}%): "
+                         "automatic capture was switched off and stays off until space is freed", key=("DISK_STOP", "-"))
+        except Exception as e:
+            print(f"[disk] could not report to the collection log: {e}")
     return s
 
 

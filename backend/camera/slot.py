@@ -52,6 +52,8 @@ class CameraSlot:
         self._restart = False
         self._ring = deque()             # (timestamp_sec, frame object, small luma copy), oldest first
         self._seen = {"full": deque(), "preview": deque()}   # arrival times, for the fps readout
+        self.last_full = None                # monotonic time of the last full-size picture (the monitor reads it)
+        self.online_since = None             # monotonic time the camera last came online
 
     # ---- frames ---------------------------------------------------------------
 
@@ -100,6 +102,8 @@ class CameraSlot:
             seen.append(now)
             while seen and seen[0] < now - FPS_WINDOW_SEC:
                 seen.popleft()
+            if kind == "full":
+                self.last_full = now
 
     def fps(self):
         """Frames per second received over the last few seconds, per stream."""
@@ -154,11 +158,18 @@ class CameraSlot:
         """Update the connection status; broadcasts only when it changed."""
         with self.lock:
             changed = (self.online, self.error) != (online, error)
+            if online and not self.online:
+                self.online_since = time.monotonic()
             self.online, self.error = online, error
             if not online:
                 self._ring.clear()
         if changed:
             broadcast({"key": "camera_status", "role": self.role, "online": online, "error": error})
+            try:   # the collection log notes every change (backend/health/collect.py)
+                from ..health import collect
+                collect.camera_state(self.role, online, error)
+            except Exception as e:   # reporting must never break the camera
+                print(f"[{self.role}] could not log the status change: {e}")
 
     def describe(self):
         fps = self.fps()

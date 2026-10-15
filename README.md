@@ -17,7 +17,8 @@ backend/
   capture/    sharpness, disk_guard, session (세트 만들기 + 트리거 세션)
   camera/     slot, registry, device, controls, overlay, pipeline, worker  (depthai는 여기서만 import)
   api/        server (라우팅) + responses / state / sample / export / stream routes
-  cli/        list_cameras, export_dataset  (python -m backend.cli.<이름>)
+  health/     app.log (앱이 찍는 모든 것), collect.log (수집 문제), 카메라 감시(monitor), Google Chat 웹훅 알림(alerts)
+  cli/        list_cameras, export_dataset, test_alert  (python -m backend.cli.<이름>)
   models/     모델 파일 (shoe_detection/: 신발 감지 모델, OAK 카메라 안에서 실행)
 .env        설정 (항목마다 설명과 가능한 값이 적혀 있음)
 captures/ logs/ exports/   실행 중 생기는 데이터
@@ -90,3 +91,4 @@ ON_TARGET_CLASSES=shoe
 | [ui-guide.md](docs/ui-guide.md) | 실시간 화면, 이미지 조회 |
 | [storage-and-qr.md](docs/storage-and-qr.md) | 저장 구조, 신발 ID(QR) 찾는 순서 |
 | [capture-log.md](docs/capture-log.md) | `logs/capture.log` 형식과 읽는 법 |
+| [logs-and-alerts.md](docs/logs-and-alerts.md) | 로그 파일(app/collect/run), 카메라 감시, 수집 문제 Google Chat 알림 설정 |

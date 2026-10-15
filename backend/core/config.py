@@ -233,6 +233,31 @@ LOG_DIR = _path("ON_LOG_DIR", "logs")
 CAPTURE_LOG = _env("ON_CAPTURE_LOG", 1, int) != 0
 CAPTURE_LOG_MAX_MB = max(1, _env("ON_CAPTURE_LOG_MAX_MB", 10, int))   # per file, 5 older ones are kept
 
+# ---- logs of the app and of the data collection (backend/health/) ------------
+# Everything the app prints (also what native code such as depthai writes) goes to <ON_LOG_DIR>/app.log with a
+# time in front of every line; problems of the data collection (camera offline / stalled, captures with a
+# missing picture or lost, disk full, crashes) go to <ON_LOG_DIR>/collect.log, one line each.
+APP_LOG = _env("ON_APP_LOG", 1, int) != 0
+APP_LOG_MAX_MB = max(1, _env("ON_APP_LOG_MAX_MB", 20, int))           # per file, 5 older ones are kept
+COLLECT_LOG_MAX_MB = max(1, _env("ON_COLLECT_LOG_MAX_MB", 10, int))   # per file, 5 older ones are kept
+# The monitor looks at the cameras every HEALTH_INTERVAL_SEC seconds. An ONLINE camera that has sent no new
+# full-size picture for HEALTH_STALL_SEC seconds is "stalled"; a camera that stays offline for
+# HEALTH_OFFLINE_SEC seconds is "down". HEALTH_STATUS_SEC: one status line per camera set in collect.log
+# every so often (fps, age of the last picture, USB speed), so the time before a problem can be read (0 = off).
+HEALTH_INTERVAL_SEC = max(0.5, _env("ON_HEALTH_INTERVAL_SEC", 2.0, float))
+HEALTH_STALL_SEC = max(1.0, _env("ON_HEALTH_STALL_SEC", 5.0, float))
+HEALTH_OFFLINE_SEC = max(5.0, _env("ON_HEALTH_OFFLINE_SEC", 60.0, float))
+HEALTH_STATUS_SEC = max(0.0, _env("ON_HEALTH_STATUS_SEC", 60.0, float))
+
+# ---- alerts for failures of the data collection: a Google Chat webhook (backend/health/alerts.py) ------------
+# The webhook URL is a secret (it carries a key and a token): it lives in .env, which is not in git, and is
+# never written to a log. How to get one: docs/logs-and-alerts.md.
+ALERT = _env("ON_ALERT", 0, int) != 0
+ALERT_WEBHOOK_URL = _env("ON_ALERT_WEBHOOK_URL", "").strip()
+ALERT_PREFIX = _env("ON_ALERT_PREFIX", "[ON-Vision]")                       # in front of the first line of a message
+ALERT_COOLDOWN_SEC = max(0.0, _env("ON_ALERT_COOLDOWN_SEC", 1800.0, float))   # the same problem is sent once per this time
+ALERT_DIGEST_SEC = max(0.0, _env("ON_ALERT_DIGEST_SEC", 60.0, float))         # problems within this time share one message
+
 # ---- saved samples ---------------------------------------------------------
 # Automatic capture stops when this part (%) of the disk's capacity is used (see backend/capture/disk_guard.py).
 # 0 = never stop.

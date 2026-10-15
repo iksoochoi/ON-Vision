@@ -4,7 +4,8 @@
 #   ./bin/install_launchd.sh install     create + start both agents
 #   ./bin/install_launchd.sh uninstall   stop + remove both
 #   ./bin/install_launchd.sh restart     restart the app
-#   ./bin/install_launchd.sh status | logs
+#   ./bin/install_launchd.sh status
+#   ./bin/install_launchd.sh logs [app|collect|capture|run|service]   follow a log (default: app)
 #   ./bin/install_launchd.sh ui          open the screen now
 # Whether the screen opens, and in which browser, is set in .env (ON_OPEN_BROWSER, ON_BROWSER_APP,
 # ON_BROWSER_KIOSK): no reinstall needed after changing them.
@@ -72,6 +73,14 @@ env_value() {
             | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]+#.*$//; s/^["'"'"']//; s/["'"'"']$//' || true)
     fi
     echo "${v:-$2}"
+}
+
+# app_log_dir: the folder of the app's logs (ON_LOG_DIR, default logs in the project folder)
+app_log_dir() {
+    local d
+    d=$(env_value ON_LOG_DIR logs)
+    case "$d" in "~"*) d="$HOME${d#"~"}" ;; esac
+    case "$d" in /*) echo "$d" ;; *) echo "$ROOT/$d" ;; esac
 }
 
 app_installed() {
@@ -156,7 +165,9 @@ case "${1:-}" in
         launchctl bootstrap "$DOMAIN" "$PLIST"
         launchctl bootstrap "$DOMAIN" "$UI_PLIST"
         echo "Installed and started: $LABEL (app) and $UI_LABEL (opens the screen at login)"
-        echo "Logs:   ./bin/install_launchd.sh logs      ($LOG_FILE, screen: $UI_LOG_FILE)"
+        echo "Logs:   ./bin/install_launchd.sh logs [app|collect|capture|run|service]   (files in $(app_log_dir))"
+        echo "        app = everything the app prints, collect = problems of the data collection, capture = every capture,"
+        echo "        run = the start script, service = the raw output of the service ($LOG_FILE; screen: $UI_LOG_FILE)"
         echo "Status: ./bin/install_launchd.sh status"
         ;;
     uninstall)
@@ -182,8 +193,18 @@ case "${1:-}" in
         ;;
     logs)
         mkdir -p "$LOG_DIR"
-        touch "$LOG_FILE"
-        exec tail -n 100 -f "$LOG_FILE"
+        dir=$(app_log_dir)
+        mkdir -p "$dir"
+        case "${2:-app}" in
+            app)     f="$dir/app.log"; [ -f "$f" ] || f="$LOG_FILE" ;;   # before the first start with the new logs
+            collect) f="$dir/collect.log" ;;
+            capture) f="$dir/capture.log" ;;
+            run)     f="$dir/run.log" ;;
+            service) f="$LOG_FILE" ;;
+            *) echo "usage: $0 logs [app|collect|capture|run|service]" >&2; exit 2 ;;
+        esac
+        touch "$f"
+        exec tail -n 100 -f "$f"
         ;;
     ui)
         open_ui
@@ -192,7 +213,7 @@ case "${1:-}" in
         open_ui "${2:-}"
         ;;
     *)
-        echo "usage: $0 install | uninstall | restart | status | logs | ui" >&2
+        echo "usage: $0 install | uninstall | restart | status | logs [app|collect|capture|run|service] | ui" >&2
         exit 2
         ;;
 esac
