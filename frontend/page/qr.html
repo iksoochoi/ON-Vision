@@ -31,6 +31,7 @@
     <span class="tabbar-title">QR</span>
   </div>
   <div class="qr-page">
+   <div class="qr-main">
     <div class="card qr-hero" id="hero">
       <h3>Latest read</h3>
       <div class="qr-big" id="bigText">Waiting…</div>
@@ -52,6 +53,18 @@
         <tbody id="rows"><tr><td colspan="5" class="empty-row">None yet</td></tr></tbody>
       </table>
     </div>
+   </div>
+   <aside class="qr-side">
+    <div class="card">
+      <h3>QR success by day (per set)</h3>
+      <table class="qr-table">
+        <thead><tr><th>Date</th><th class="num">Sets</th><th class="num">Read</th><th class="num">Not read</th><th class="num">Rate</th></tr></thead>
+        <tbody id="dailyRows"><tr><td colspan="5" class="empty-row">None yet</td></tr></tbody>
+        <tfoot id="dailyTotal"></tfoot>
+      </table>
+      <div class="hint">A set is one shoe pass (all cameras, before / center / after). Read = the set got a QR value, Not read = it is saved without one. The day is the capture date.</div>
+    </div>
+   </aside>
   </div>
 <script>
 (function () {

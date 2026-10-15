@@ -74,6 +74,8 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, St
                 self._send_bytes(jpg, "image/jpeg")
         elif path == "/api/qr":
             self._send_json(qr_hub.snapshot())
+        elif path == "/api/qr/daily":
+            self._send_json(store.daily_qr())
         elif path.startswith("/exports/"):
             self._download_export(path[len("/exports/"):])
         elif path.startswith("/api/samples/"):

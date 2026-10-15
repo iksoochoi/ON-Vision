@@ -65,6 +65,26 @@ function renderRows() {
   }
 }
 
+function renderDaily(days) {
+  const tbody = $('dailyRows'), foot = $('dailyTotal');
+  if (!days.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-row">None yet</td></tr>';
+    foot.innerHTML = '';
+    return;
+  }
+  const rate = (ok, n) => (n ? (100 * ok / n).toFixed(1) + '%' : '-');
+  tbody.innerHTML = days.map((d) =>
+    `<tr><td>${esc(d.date)}</td><td class="num">${d.sets}</td><td class="num">${d.ok}</td>` +
+    `<td class="num${d.fail ? ' bad' : ''}">${d.fail}</td><td class="num">${rate(d.ok, d.sets)}</td></tr>`).join('');
+  const sum = days.reduce((a, d) => ({ sets: a.sets + d.sets, ok: a.ok + d.ok, fail: a.fail + d.fail }), { sets: 0, ok: 0, fail: 0 });
+  foot.innerHTML = `<tr><td>Total</td><td class="num">${sum.sets}</td><td class="num">${sum.ok}</td>` +
+    `<td class="num">${sum.fail}</td><td class="num">${rate(sum.ok, sum.sets)}</td></tr>`;
+}
+
+async function loadDaily() {
+  try { renderDaily(await fetch('/api/qr/daily').then((r) => r.json())); } catch (e) {}
+}
+
 async function load() {
   try {
     const q = await fetch('/api/qr').then((r) => r.json());
@@ -90,7 +110,9 @@ fetch('/api/state').then((r) => r.json()).then((st) => {
 }).catch(() => {});
 
 load();
+loadDaily();
 setInterval(load, 3000);   // scan status + relative times
+setInterval(loadDaily, 15000);
 new EventSource('/events').onmessage = (ev) => {
   let data;
   try { data = JSON.parse(ev.data); } catch (err) { return; }
@@ -98,5 +120,6 @@ new EventSource('/events').onmessage = (ev) => {
     history.unshift(data.entry);
     history = history.slice(0, 200);
     renderHero(); renderRows();
+    if (data.entry.source === 'capture') loadDaily();   // a set was just saved
   }
 };

@@ -63,6 +63,24 @@ class ShoeIndex:
                 "shoes": sum(1 for s in shoes if s["shoe_id"] is not None),
                 "no_id_sets": sum(s["sets"] for s in shoes if s["shoe_id"] is None)}
 
+    def daily(self):
+        """QR reading per day, counted in sets (one shoe pass each), newest day first:
+        [{"date": "2026-10-15", "sets": 40, "ok": 36, "fail": 4}]. ok = the set got a QR value, fail = it
+        did not. The day is the capture date of the set's first cut."""
+        passes = {}   # pass id -> [first time, has a QR value]
+        for info in self._index().values():
+            if info["primary"] not in self._present(info):
+                continue   # its pictures were deleted: only the set file is left over
+            p = passes.setdefault(info["burst"] or info["id"], [info["time"], False])
+            p[0] = min(p[0], info["time"])
+            p[1] = p[1] or info["shoe_id"] is not None
+        days = {}
+        for first, ok in passes.values():
+            d = days.setdefault(first[:10] or "unknown", {"date": first[:10] or "unknown", "sets": 0, "ok": 0, "fail": 0})
+            d["sets"] += 1
+            d["ok" if ok else "fail"] += 1
+        return sorted(days.values(), key=lambda d: d["date"], reverse=True)
+
     def shoes(self):
         """Every shoe (QR value) that has sets, most recently captured first; the pictures without a QR
         value are listed last as shoe_id None. A "set" is one shoe pass (before / center / after of every

@@ -290,6 +290,9 @@ class SampleStore:
     def by_shoe(self, shoe):
         return self._shoes.by_shoe(shoe)
 
+    def daily_qr(self):
+        return self._shoes.daily()
+
     def counts(self):
         counts = {"all": 0, "passes": 0, "unlabeled": 0, "ok": 0, "ng": 0, "reject": 0,
                   "with_bbox": 0, "bbox_reviewed": 0}
