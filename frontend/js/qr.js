@@ -108,7 +108,7 @@ function renderSizes() {
   const tbody = $('sizeRows');
   if (!sizeData) return;
   const sum = (list) => list.reduce((a, b) => a + b, 0);
-  if (!sum(sizeData.read) + sizeData.read_no_size + sum(sizeData.unread)) {
+  if (!(sum(sizeData.read) + sizeData.read_no_size + sum(sizeData.unread))) {
     tbody.innerHTML = '<tr><td colspan="3" class="empty-row">None yet</td></tr>';
   } else {
     let html = sizeData.labels.map((label, i) =>
