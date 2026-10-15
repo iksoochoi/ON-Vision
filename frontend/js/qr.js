@@ -67,13 +67,14 @@ function renderRows() {
 
 const openDays = new Set();   // dates whose hours are shown
 let dailyData = [];
-let sizeData = null, sourceData = {};
+let sizeData = null, sourceData = {}, methodData = {};
 
 function renderDaily(data) {
   if (data) {
     dailyData = data.days || [];
     sizeData = data.sizes || null;
     sourceData = data.sources || {};
+    methodData = data.methods || {};
   }
   renderSizes();
   const tbody = $('dailyRows'), foot = $('dailyTotal');
@@ -121,6 +122,12 @@ function renderSizes() {
   }
   const parts = Object.entries(sourceData).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`);
   $('sourceLine').textContent = parts.length ? 'Where the value was read: ' + parts.join(', ') : '';
+  const methods = Object.entries(methodData).sort((a, b) => b[1] - a[1]);
+  const shown = methods.slice(0, 6).map(([k, v]) => `${k} ${v}`);
+  const rest = methods.slice(6).reduce((a, [, v]) => a + v, 0);
+  $('methodLine').textContent = methods.length
+    ? 'How the saved pictures were read (cv = the plain way, the others are the extra attempts): ' + shown.join(', ') + (rest ? `, others ${rest}` : '')
+    : '';
 }
 
 $('dailyRows').onclick = (ev) => {

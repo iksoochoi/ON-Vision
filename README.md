@@ -12,13 +12,13 @@ backend/
   main.py     실행 진입점 (python -m backend.main)
   core/       config (.env 읽기), state, events, rotation (회전·줌 크롭), zoom
   detect/     trigger (중앙 통과 판정), background (배경차분), model (YOLO 결과)
-  qr/         decode, hub (최근 결과), scanner (카메라별 실시간 스캔)
+  qr/         decode, enhance (못 읽은 QR 다시 읽기), hub (최근 결과), scanner (카메라별 실시간 스캔)
   storage/    paths, meta, shoe_id, shoes, store (세트 저장·조회), capture_log, export
   capture/    sharpness, disk_guard, session (세트 만들기 + 트리거 세션)
   camera/     slot, registry, device, controls, overlay, pipeline, worker  (depthai는 여기서만 import)
   api/        server (라우팅) + responses / state / sample / export / stream routes
   health/     app.log (앱이 찍는 모든 것), collect.log (수집 문제), 카메라 감시(monitor), Google Chat 웹훅 알림(alerts)
-  cli/        list_cameras, export_dataset, test_alert, fps_probe  (python -m backend.cli.<이름>)
+  cli/        list_cameras, export_dataset, test_alert, fps_probe, qr_bench  (python -m backend.cli.<이름>)
   models/     모델 파일 (shoe_detection/: 신발 감지 모델, OAK 카메라 안에서 실행)
 .env        설정 (항목마다 설명과 가능한 값이 적혀 있음)
 captures/ logs/ exports/   실행 중 생기는 데이터
@@ -72,6 +72,7 @@ bash bin/setup_mac.sh                # 처음 한 번: .venv 생성 + 패키지 
 ```bash
 .venv/bin/python -m backend.cli.list_cameras     # 연결된 OAK의 장치 id와 .env에 붙일 ON_CAMERAS 줄
 .venv/bin/python -m backend.cli.export_dataset   # YOLO 데이터셋 내보내기 (옵션: --reviewed-only --val-ratio --no-negatives --max-side)
+.venv/bin/python -m backend.cli.qr_bench <사진 폴더>   # 저장된 사진으로 QR 읽기 방식(기본/추가 시도/zxing) 비교
 .venv/bin/python -m backend.cli.fps_probe --sweep   # 카메라 1대가 요청한 fps대로 나오는지 측정 (앱/서비스를 먼저 멈출 것)
 ```
 

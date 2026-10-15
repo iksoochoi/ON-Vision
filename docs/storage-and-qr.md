@@ -39,3 +39,15 @@ exports/shoe_<시각>/{images,labels}/{train,val}/  data.yaml  manifest.json   +
 카메라 폴더의 `<id>.json`은 그 카메라의 크기·노출·캡처 시각 차이·QR과 세트의 `label`을 담고, 기준 카메라 쪽에만 `bbox`/`detection`이 들어갑니다. 라벨이나 bbox를 고치면 함께 갱신됩니다(원본은 `captures/.sets/<id>.json`).
 자동 캡처는 앱을 시작할 때 **ON**입니다(`.env`의 `ON_AUTO_CAPTURE=0`이면 OFF로 시작해서 실시간 화면의 `자동 캡처` 버튼으로 켭니다). 디스크가 이미 한도를 넘었으면 OFF로 시작합니다.
 이전 버전에서 `captures/` 바로 아래에 저장한 `<id>.json`은 앱을 시작할 때 `.sets/`로 자동으로 옮겨지고, 같은 위치의 `<id>.jpg`, `<id>__<카메라>.jpg`는 그대로 읽힙니다.
+
+### 못 읽은 QR 다시 읽기 (`ON_QR_ENHANCE`)
+QR 위치는 찾았는데 값을 못 읽는 경우(번짐, 반사, 기울어진 라벨)를 위해, 기본 읽기가 실패한 사진에만 아래를 순서대로 더 시도합니다([backend/qr/enhance.py](../backend/qr/enhance.py)).
+1. **위치 주변만 잘라서** 정사각형으로 펴고(원근 보정) 2~4배 확대한 뒤 여러 버전으로 다시 읽기: 그대로, 선명하게(unsharp), **가로 번짐 보정**(컨베이어가 가로로 움직여서 생기는 번짐을 Wiener 필터로 되돌림, 번짐 길이 4·6·9·12px), 대비 보정, 이진화, 밝게/어둡게(반사).
+2. 각 버전을 OpenCV 뒤에 **zxing-cpp**로도 읽기(`ON_QR_ZXING`). 흐림과 기울어짐에 OpenCV보다 강합니다. 패키지가 없으면 한 번 안내 문구만 찍고 OpenCV만으로 동작합니다.
+3. 위치조차 못 찾은 저장 사진은 zxing-cpp가 사진 전체(그리고 번짐 보정 후)에서 직접 찾기. 번짐 길이를 4가지만 시도하므로 효과는 제한적입니다.
+- **시간**: 읽힌 사진에는 추가 시간이 없습니다. 못 읽은 사진은 `ON_QR_ENHANCE_SEC`(기본 0.8초)까지만 더 시도하고, 실시간 스캔은 그중 0.25초까지입니다(위치를 찾은 경우에만, 4번 중 1번). 한 번의 캡처에서 한 사진이 값을 읽으면 나머지 컷은 이 추가 시도를 건너뜁니다.
+- **어느 방법으로 읽었는지**: 읽은 코드마다 `method`가 JSON(`qr[].method`)에 남습니다. `cv`=기본 방식, `rect`=잘라서 편 사진, `crop`=잘라서 확대만, `:wiener9`=번짐 보정(9px), `:unsharp`, `:adaptive` 등, 끝의 `+zxing`=zxing-cpp가 읽음. QR 화면의 "How the saved pictures were read" 줄에 개수가 나옵니다.
+- **효과 확인**: 저장된 사진 폴더(복사본)에서 `.venv/bin/python -m backend.cli.qr_bench <폴더>`로 기본 / 추가 시도 / +zxing를 같은 사진에 돌려 읽힌 개수와 사진당 시간, 새로 읽힌 사진 목록을 비교합니다(`--expect 값`, `--roi x,y,w,h`).
+- **되돌리기**: `.env`에 `ON_QR_ENHANCE=0`을 넣고 앱을 재시작하면 이 기능을 쓰지 않고 이전과 똑같이 읽습니다(시험으로 확인: 같은 사진 36장 x 3가지 설정에서 읽은 값/위치/크기 동일). zxing만 끄려면 `ON_QR_ZXING=0`. 코드를 되돌리려면 이 기능의 커밋을 `git revert`하면 됩니다.
+- **설치**: zxing-cpp는 `requirements.txt`에 있습니다. Mac에서 한 번 `.venv/bin/python -m pip install zxing-cpp==3.1.1`(또는 `pip install -r requirements.txt`)을 실행하세요.
+- **한계**: 크기가 너무 작거나(대략 70px 미만) 번짐이 칸 몇 개 폭을 넘으면(가로 번짐 약 12px 이상) 읽지 못합니다. 이 경우 해결책은 카메라 쪽(초점, 노출, 해상도)입니다.

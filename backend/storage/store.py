@@ -147,8 +147,8 @@ class SampleStore:
         starts with it."""
         prepared, results = [], []
         for sample_id, views, meta in sets:
-            try:
-                prepared.append(self._prepare(sample_id, views, meta))
+            try:   # one code is enough for the pass: once a picture gave one, the others skip the slow extra attempts
+                prepared.append(self._prepare(sample_id, views, meta, deep=not any(item[3] for item in prepared)))
             except Exception as e:
                 print(f"Sample save failed ({sample_id}): {e}")
                 results.append({"id": sample_id, "saved": [], "missing": {}, "error": str(e)})
@@ -164,8 +164,9 @@ class SampleStore:
             print(f"[capture log] failed: {e}")
 
     @staticmethod
-    def _prepare(sample_id, views, meta):
-        """Pictures of one set as images, and the QR codes in them. Returns (id, meta, images, codes)."""
+    def _prepare(sample_id, views, meta, deep=True):
+        """Pictures of one set as images, and the QR codes in them. deep: the extra attempts for a code that
+        cannot be read (ON_QR_ENHANCE). Returns (id, meta, images, codes)."""
         primary = meta["primary_view"]
         info = meta.get("views") or {}
         saved, missing, images = {}, dict(meta.get("missing_views") or {}), {}
@@ -188,7 +189,7 @@ class SampleStore:
         if C.QR_ENABLED:
             try:
                 seen = {}
-                codes, _ = read_qr(images, seen)
+                codes, _ = read_qr(images, seen, deep)
                 for role, sizes in seen.items():   # located but not read: how big it was in the picture
                     saved[role]["qr_seen_px"] = round(max(sizes))
             except Exception as e:  # QR is best effort: never lose the images for it

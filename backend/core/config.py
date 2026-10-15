@@ -211,6 +211,13 @@ QR_CAMERAS = [r.strip().lower() for r in _env("ON_QR_CAMERAS", "").split(",") if
 QR_LIVE_WINDOW_SEC = max(0.0, _env("ON_QR_LIVE_WINDOW_SEC", 3.0, float))  # live reads count from this long before the first shot
 QR_WAIT_SEC = max(0.0, _env("ON_QR_WAIT_SEC", 4.0, float))                # ... until this long after the last shot (auto captures)
 QR_ZOOM = _env("ON_QR_ZOOM", 1, int) != 0                                 # step 3
+# Extra attempts for a code that was located but could not be read (backend/qr/enhance.py): cut around it,
+# straighten, enlarge, sharpen / deblur along the belt, other contrast, read again; with zxing-cpp as a second
+# reader (pip package zxing-cpp). Costs time only for pictures that were not read: at most ON_QR_ENHANCE_SEC
+# per saved picture (live scans a quarter of a second). ON_QR_ENHANCE=0 = exactly the reading of before.
+QR_ENHANCE = _env("ON_QR_ENHANCE", 1, int) != 0
+QR_ENHANCE_SEC = max(0.1, _env("ON_QR_ENHANCE_SEC", 0.8, float))
+QR_ZXING = _env("ON_QR_ZXING", 1, int) != 0   # use zxing-cpp in the extra attempts (when it is installed)
 # Which shoe a code belongs to when shoes pass close together (automatic captures only). At the moment of the
 # center shot the shoe being saved is in the middle of the picture, its neighbours are further out. A code counts
 # for this shoe with a weight that is 1 in the middle of the picture and falls to 0 at this distance from it

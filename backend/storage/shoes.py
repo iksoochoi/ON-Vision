@@ -26,12 +26,14 @@ class ShoeIndex:
     def _summary(meta):
         burst = meta.get("burst") or {}
         read = [c["size_px"] for c in meta.get("qr") or [] if c.get("size_px")]
+        best = max((c for c in meta.get("qr") or [] if c.get("size_px")), key=lambda c: c["size_px"], default=None)
         seen = [v["qr_seen_px"] for v in (meta.get("views") or {}).values()
                 if isinstance(v, dict) and v.get("qr_seen_px")]
         return {"id": meta["id"], "shoe_id": meta.get("shoe_id") or None, "time": meta.get("timestamp") or "",
                 "burst": burst.get("id"), "kind": burst.get("kind"), "primary": primary_role(meta),
                 "views": list(meta.get("views") or [primary_role(meta)]),
                 "source": meta.get("shoe_id_source"),   # where the QR value came from (capture, live, ...)
+                "method": (best or {}).get("method"),   # how that code was read (decode.py / enhance.py)
                 "read_px": max(read) if read else None,   # size of the biggest code that was read in a picture
                 "seen_px": max(seen) if seen else None}   # size of a code that was located but not read
 
@@ -82,24 +84,27 @@ class ShoeIndex:
         {"days": [{"date": "2026-10-15", "sets": 40, "ok": 36, "fail": 4, "seen": 3,
                    "hours": [{"hour": 9, "sets": .., "ok": .., "fail": .., "seen": ..}]}],   newest day first
          "sizes": {"labels": [...], "read": [n per size class], "unread": [...], "read_no_size": n},
-         "sources": {"capture": n, "live": n, ...}}
+         "sources": {"capture": n, "live": n, ...},
+         "methods": {"cv": n, "rect+zxing": n, ...}}   how the codes in the saved pictures were read
         ok = the set got a QR value, fail = it did not; seen = of the failed sets, those where a QR code was located
         in a picture but could not be read (fail - seen = no code was seen at all). The day and the hour (0-23,
         oldest first) are those of the set's first cut. sizes: how big the code was in the picture (px, the biggest
         per set): of the sets where it was read, and of those where it was located but not readable."""
-        passes = {}   # pass id -> {"time", "ok", "source", "read_px", "seen_px"}
+        passes = {}   # pass id -> {"time", "ok", "source", "method", "read_px", "seen_px"}
         for info in self._index().values():
             if info["primary"] not in self._present(info):
                 continue   # its pictures were deleted: only the set file is left over
             p = passes.setdefault(info["burst"] or info["id"], {"time": info["time"], "ok": False, "source": None,
-                                                                "read_px": None, "seen_px": None})
+                                                                "method": None, "read_px": None, "seen_px": None})
             p["time"] = min(p["time"], info["time"])
             if info["shoe_id"] is not None:
                 p["ok"], p["source"] = True, p["source"] or info["source"]
+            if info.get("method") and (not p["read_px"] or (info.get("read_px") or 0) > p["read_px"]):
+                p["method"] = info["method"]
             for key in ("read_px", "seen_px"):
                 if info.get(key):
                     p[key] = max(p[key] or 0, info[key])
-        days, sources = {}, {}
+        days, sources, methods = {}, {}, {}
         sizes = {"labels": SIZE_LABELS, "read": [0] * len(SIZE_LABELS), "unread": [0] * len(SIZE_LABELS),
                  "read_no_size": 0}
         for p in passes.values():
@@ -115,6 +120,8 @@ class ShoeIndex:
             if p["ok"]:
                 source = p["source"] or "unknown"
                 sources[source] = sources.get(source, 0) + 1
+                if p["method"]:
+                    methods[p["method"]] = methods.get(p["method"], 0) + 1
                 if p["read_px"]:
                     sizes["read"][_size_class(p["read_px"])] += 1
                 else:
@@ -123,7 +130,8 @@ class ShoeIndex:
                 sizes["unread"][_size_class(p["seen_px"])] += 1
         for d in days.values():
             d["hours"] = sorted(d["hours"].values(), key=lambda h: h["hour"])
-        return {"days": sorted(days.values(), key=lambda d: d["date"], reverse=True), "sizes": sizes, "sources": sources}
+        return {"days": sorted(days.values(), key=lambda d: d["date"], reverse=True), "sizes": sizes, "sources": sources,
+                "methods": methods}
 
     def shoes(self):
         """Every shoe (QR value) that has sets, most recently captured first; the pictures without a QR
