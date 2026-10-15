@@ -1,28 +1,41 @@
-"""The monitor: looks at the cameras every few seconds and reports what it sees. It only watches and reports;
-it changes nothing (no restarts), so that a problem stays as it is while it is being studied.
+"""The monitor: looks at the cameras every few seconds, reports what it sees and, for a camera that stays
+silent, restarts it.
 
   CAMERA_STALLED   a camera is ONLINE but has sent no new full-size picture for ON_HEALTH_STALL_SEC seconds. The
                    log line and the alert carry the state of every camera at that moment (fps, USB speed, age of
                    the last picture) and say which other cameras were silent at the same time: cameras that
                    stall together usually share a USB hub or controller.
   CAMERA_DOWN      a camera has been offline for ON_HEALTH_OFFLINE_SEC seconds (not found, unplugged, ...).
+  CAMERA_RESTART   a camera has been stalled for ON_HEALTH_RESTART_SEC seconds: its pipeline is closed and opened
+                   again (slot.request_restart; the other cameras keep running). Tried again every 30 s while it
+                   stays silent. 0 = never restart.
+  APP_RESTART      ON_HEALTH_RESTART_MAX restarts within 10 minutes did not help: the alert is sent and the app
+                   exits, so that the service manager (launchd KeepAlive) starts it again. (A restart by hand with
+                   ./bin/run.sh is not started again.)
   CAMERA_RECOVERED the stream is back / the camera is online again (sent only if the problem was sent).
   STATUS           every ON_HEALTH_STATUS_SEC seconds: one line with every camera's fps and picture age, plus the
                    load of the Mac, so the minutes before a stall can be read from the log.
 
-No depthai here: it only reads the camera slots, so it runs and is tested without hardware."""
+No depthai here: it only reads the camera slots (and asks one to restart), so it runs and is tested without
+hardware."""
 
 import os
+import sys
 import threading
 import time
 
 from ..core import config as C
 from . import alerts, collect
 
+RESTART_RETRY_SEC = 30.0      # a camera that is still silent is restarted again after this long
+RESTART_WINDOW_SEC = 600.0    # restarts of one camera are counted over this long
+EXIT_CODE = 75                # the app's exit code when it gives up on a camera (EX_TEMPFAIL)
+
 
 class HealthMonitor(threading.Thread):
-    def __init__(self, registry, stop, clock=time.monotonic):
+    def __init__(self, registry, stop, clock=time.monotonic, exit_fn=None):
         super().__init__(name="health-monitor", daemon=True)
+        self.exit_fn = exit_fn or self._exit_app
         self.registry = registry
         self.stop_event = stop
         self.clock = clock
@@ -72,7 +85,8 @@ class HealthMonitor(threading.Thread):
     # ---- one look ----------------------------------------------------------------------------------
 
     def _st(self, role):
-        return self._state.setdefault(role, {"offline_since": None, "down": False, "stalled": False, "stalled_since": None})
+        return self._state.setdefault(role, {"offline_since": None, "down": False, "stalled": False, "stalled_since": None,
+                                             "restarts": [], "last_restart": None})
 
     def check(self, now=None):
         """One look at every camera; reports changes. Returns the events' kinds (for tests)."""
@@ -117,6 +131,8 @@ class HealthMonitor(threading.Thread):
                 kinds.append("CAMERA_RECOVERED")
                 collect.emit("CAMERA_RECOVERED", "INFO", f"pictures are coming again after about {int(lasted)} s",
                              camera=slot.role, recovers=[("CAMERA_STALLED", slot.role)])
+            if st["stalled"] and C.HEALTH_RESTART_SEC and age >= C.HEALTH_RESTART_SEC:
+                self._act(slot, st, age, now, kinds)
         if C.HEALTH_STATUS_SEC and now >= self._next_status:
             self._next_status = now + C.HEALTH_STATUS_SEC
             cams = " | ".join(
@@ -125,6 +141,45 @@ class HealthMonitor(threading.Thread):
                 for s in slots)
             collect.emit("STATUS", "INFO", cams + " | " + self.system_line(now), alert=False)
         return kinds
+
+    # ---- the cure ----------------------------------------------------------------------------------
+
+    def _act(self, slot, st, age, now, kinds):
+        """A camera has been silent long enough: restart it; when restarts do not help, give up on the app."""
+        if st["last_restart"] is not None and now - st["last_restart"] < RESTART_RETRY_SEC:
+            return   # the last restart is still under way
+        st["restarts"] = recent = [t for t in st["restarts"] if now - t < RESTART_WINDOW_SEC]
+        if len(recent) >= C.HEALTH_RESTART_MAX:
+            kinds.append("APP_RESTART")
+            self._give_up(slot, age, len(recent), now)
+            return
+        recent.append(now)
+        st["last_restart"] = now
+        kinds.append("CAMERA_RESTART")
+        collect.emit("CAMERA_RESTART", "WARNING",
+                     f"no picture for {age:.0f} s: restarting the camera (attempt {len(recent)}/{C.HEALTH_RESTART_MAX})",
+                     camera=slot.role, snapshot=self.snapshot(now))
+        slot.request_restart()
+
+    def _give_up(self, slot, age, tries, now):
+        """The camera is still silent after the restarts: tell the chat, then end the app (launchd starts it again)."""
+        collect.emit("APP_RESTART", "ERROR",
+                     f"camera {slot.role} is still silent ({age:.0f} s) after {tries} restarts: restarting the whole app",
+                     camera=slot.role, snapshot=self.snapshot(now))
+        try:   # send now: nothing is left to send it after the exit (no waiting between the retries)
+            alerts.flush(sleep=lambda _seconds: None)
+        except Exception as e:
+            print(f"[health] could not send the last alert: {e}")
+        self.exit_fn()
+
+    @staticmethod
+    def _exit_app():
+        print("[health] exiting: a camera does not come back")
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+        os._exit(EXIT_CODE)   # no clean shutdown: a hung camera driver would block it
 
     def run(self):
         while not self.stop_event.wait(C.HEALTH_INTERVAL_SEC):

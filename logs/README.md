@@ -23,6 +23,8 @@
 | 종류 | 뜻 | Chat 알림 |
 |---|---|---|
 | `CAMERA_STALLED` | 카메라는 ONLINE인데 5초 넘게 사진이 안 옴. 같은 시각에 조용해진 다른 카메라, 모든 카메라의 fps / USB 속도 / 마지막 사진 시각 / Mac 부하가 같이 적힘 | O |
+| `CAMERA_RESTART` | 카메라가 60초(`ON_HEALTH_RESTART_SEC`) 넘게 멎어 그 카메라만 재시작함(몇 번째 시도인지) | O |
+| `APP_RESTART` | 카메라 재시작이 3번 안 통해 앱 전체를 종료함(launchd가 다시 시작) | O |
 | `CAMERA_DOWN` | 카메라가 60초 넘게 OFFLINE | O |
 | `CAMERA_FLAPPING` | 10분 안에 3번 OFFLINE이 됨 | O |
 | `CAMERA_RECOVERED` | 영상이 다시 옴 / 다시 ONLINE | 알린 문제만 |

@@ -24,8 +24,9 @@ Thumbs.db
 # Claude Code
 /.claude/
 
-# local settings (each machine has its own)
+# local settings (each machine has its own; env_mac is a copy of the Mac's, with the webhook secret)
 /.env
+/env_mac
 
 # training work (data, models, scripts) stays on this PC
 /train/

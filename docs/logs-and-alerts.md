@@ -1,6 +1,6 @@
 # 로그와 알림 (데이터 수집 문제 추적)
 
-카메라가 끊기거나 영상이 멈추는 것, 사진이 빠진 채 저장되는 것 같은 **데이터 수집 문제가 생겼을 때 그 순간의 상태를 남기고 Google Chat으로 알려 주는** 기능입니다. 감시만 하고 아무것도 고치거나 재시작하지 않으므로, 문제가 있는 그대로 남아 원인을 볼 수 있습니다.
+카메라가 끊기거나 영상이 멈추는 것, 사진이 빠진 채 저장되는 것 같은 **데이터 수집 문제가 생겼을 때 그 순간의 상태를 남기고 Google Chat으로 알려 주는** 기능입니다. 문제를 알리는 것에 더해, **영상이 멈춘 카메라는 그 카메라만 자동으로 재시작**합니다(`ON_HEALTH_RESTART_SEC`, 아래 "자동 재시작"). `ON_HEALTH_RESTART_SEC=0`이면 예전처럼 감시만 하고 아무것도 고치지 않습니다.
 
 ## 로그 파일 (`logs/` 폴더)
 `bin/run.sh`로 실행하든 `install_launchd.sh` 서비스로 실행하든 똑같이 남습니다. 폴더는 `.env`의 `ON_LOG_DIR`로 바꿉니다.
@@ -33,6 +33,8 @@
 | 종류 | 뜻 | 알림 |
 |---|---|---|
 | `CAMERA_STALLED` | 카메라는 ONLINE인데 `ON_HEALTH_STALL_SEC`(5초) 넘게 새 사진이 없음. **같은 시각에 조용해진 다른 카메라**, 모든 카메라의 fps / USB 속도 / 마지막 사진 시각 / Mac 부하가 같이 적힘 | O |
+| `CAMERA_RESTART` | 카메라가 `ON_HEALTH_RESTART_SEC`(60초) 넘게 멎어 **그 카메라만 재시작**함. 몇 번째 시도인지 적힘 | O |
+| `APP_RESTART` | 재시작을 `ON_HEALTH_RESTART_MAX`(3)번 해도 돌아오지 않아 **앱 전체를 종료**함(launchd가 다시 시작) | O |
 | `CAMERA_DOWN` | 카메라가 `ON_HEALTH_OFFLINE_SEC`(60초) 넘게 OFFLINE | O |
 | `CAMERA_FLAPPING` | 10분 안에 3번 OFFLINE이 됨 | O |
 | `CAMERA_RECOVERED` | 영상이 다시 옴 / 다시 ONLINE | 알린 문제만 |
@@ -93,6 +95,15 @@ curl -X POST -H "Content-Type: application/json; charset=UTF-8" -d '{"text":"ON-
 - **복구 메시지**는 문제 메시지를 보낸 경우에만 갑니다.
 - 웹훅이 안 되면 30초, 2분, 10분 뒤에 다시 시도하고, 그래도 안 되면 `collect.log`에 `ALERT_FAILED`로 남기고 다음 메시지에 합칩니다. 알림 문제 때문에 수집이 느려지는 일은 없습니다(별도 스레드).
 - 웹훅 주소(키와 토큰)는 어떤 로그에도 남지 않습니다. 서버가 오류 응답에 주소를 되돌려 줘도 가려서 기록합니다.
+
+## 자동 재시작
+카메라가 ONLINE인데 영상이 오지 않는 상태(`CAMERA_STALLED`)가 `ON_HEALTH_RESTART_SEC`(기본 60초) 이어지면 다음 순서로 복구합니다.
+1. **그 카메라만 재시작**: 파이프라인을 닫고 다시 엽니다. 다른 카메라와 캡처는 그대로 돕니다. 재시작이 끝날 때까지(수 초~십수 초) 그 카메라의 사진은 캡처에서 빠집니다(`CAPTURE_PARTIAL`). `CAMERA_RESTART`가 로그와 Chat에 남습니다.
+2. 그래도 멎어 있으면 **30초마다 다시** 시도합니다.
+3. **10분 안에 `ON_HEALTH_RESTART_MAX`(3)번** 재시작했는데도 멎으면 **앱 전체를 종료**하고 `APP_RESTART` 알림을 보냅니다. 서비스(`install_launchd.sh`)로 돌릴 때는 launchd가 10초 뒤 다시 시작합니다. `./bin/run.sh`로 직접 돌린 경우에는 다시 시작되지 않으니 서비스를 쓰세요. 이때 저장 대기 중이던 캡처는 사라질 수 있고, 다음 시작에서 `ABNORMAL_RESTART`가 한 번 더 남는 것이 정상입니다.
+- 멎은 장치를 닫는 호출 자체가 끝나지 않는 경우(드라이버가 멈춤)에도 3번 시도 뒤 앱 종료로 이어지므로, 최대 약 2분 반 안에 복구됩니다.
+- OFFLINE인 카메라는 이 기능이 아니라 카메라 스레드가 5초마다 다시 연결을 시도합니다(`CAMERA_DOWN`은 60초 넘게 OFFLINE일 때 알림).
+- 값: `ON_HEALTH_RESTART_SEC`(0이면 끔, 신발 간격이 8~9초라면 20~30초도 좋음), `ON_HEALTH_RESTART_MAX`.
 
 ## 감시 기준 조정
 `ON_HEALTH_STALL_SEC`(기본 5), `ON_HEALTH_OFFLINE_SEC`(60), `ON_HEALTH_INTERVAL_SEC`(2), `ON_HEALTH_STATUS_SEC`(60, 0이면 STATUS 줄 없음). 영상이 잠깐 끊기는 것까지 잡고 싶으면 `ON_HEALTH_STALL_SEC`를 줄이세요.
