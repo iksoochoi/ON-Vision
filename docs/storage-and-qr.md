@@ -28,5 +28,5 @@ exports/shoe_<시각>/{images,labels}/{train,val}/  data.yaml  manifest.json   +
 - 데이터 내보내기 파일명에도 QR 접두어가 그대로 붙습니다. 이미 저장된 샘플의 이름은 바뀌지 않습니다.
 `captures/.sets/<id>.json`에는 검출 정보, 카메라 설정, `bbox`(정규화 x,y,w,h / source / reviewed), `label`이 들어 있습니다. `bbox`와 데이터 내보내기는 기준 카메라(`primary_view`) 이미지 기준입니다.
 카메라 폴더의 `<id>.json`은 그 카메라의 크기·노출·캡처 시각 차이·QR과 세트의 `label`을 담고, 기준 카메라 쪽에만 `bbox`/`detection`이 들어갑니다. 라벨이나 bbox를 고치면 함께 갱신됩니다(원본은 `captures/.sets/<id>.json`).
-자동 캡처는 앱을 시작할 때 **OFF**입니다. 실시간 화면의 `자동 캡처` 버튼으로 켭니다.
+자동 캡처는 앱을 시작할 때 **ON**입니다(`.env`의 `ON_AUTO_CAPTURE=0`이면 OFF로 시작해서 실시간 화면의 `자동 캡처` 버튼으로 켭니다). 디스크가 이미 한도를 넘었으면 OFF로 시작합니다.
 이전 버전에서 `captures/` 바로 아래에 저장한 `<id>.json`은 앱을 시작할 때 `.sets/`로 자동으로 옮겨지고, 같은 위치의 `<id>.jpg`, `<id>__<카메라>.jpg`는 그대로 읽힙니다.

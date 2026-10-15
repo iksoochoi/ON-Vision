@@ -3,8 +3,10 @@ Per-camera state (settings, preview, frame ring) lives in backend/camera/."""
 
 import threading
 
+from . import config as C
+
 state = {
-    "auto_enabled": False,   # off at start: turn it on from the live page once the belt is ready
+    "auto_enabled": C.AUTO_CAPTURE,   # ON_AUTO_CAPTURE: on at start (the default) or off until it is switched on
     "manual_capture": False,
     "bg_capture_request": False,
     "detector": {"mode": "", "model": "", "classes": [], "targets": []},

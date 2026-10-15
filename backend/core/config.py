@@ -262,6 +262,9 @@ ALERT_DIGEST_SEC = max(0.0, _env("ON_ALERT_DIGEST_SEC", 60.0, float))         # 
 # Automatic capture stops when this part (%) of the disk's capacity is used (see backend/capture/disk_guard.py).
 # 0 = never stop.
 DISK_STOP_PERCENT = max(0.0, min(100.0, _env("ON_DISK_STOP_PERCENT", 90.0, float)))
+# The automatic capture is ON when the app starts (1), or OFF until it is switched on on the live page (0).
+# It stays OFF when the disk is already past ON_DISK_STOP_PERCENT.
+AUTO_CAPTURE = _env("ON_AUTO_CAPTURE", 1, int) != 0
 JPEG_QUALITY = _env("ON_JPEG_QUALITY", 95, int)
 THUMB_WIDTH = _env("ON_THUMB_WIDTH", 480, int)
 

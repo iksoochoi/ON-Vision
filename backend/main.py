@@ -18,6 +18,7 @@ import time
 
 from .api.server import start_server
 from .core import config as C
+from .core.state import state, state_lock
 from .health import applog, collect, monitor
 
 
@@ -46,8 +47,15 @@ def run(stop=None):
 
         threads = start_workers(stop)   # cameras that are missing keep retrying
         slots = registry.slots()
+        if C.AUTO_CAPTURE:   # on at start, unless the disk is already full (then it is switched off at once, with an alert)
+            disk_guard.enforce(fresh=True)
+        with state_lock:
+            auto_on = state["auto_enabled"]
+        collect.emit("AUTO_CAPTURE", "INFO", "automatic capture is ON at start" if auto_on else
+                     "automatic capture is OFF at start" + ("" if C.AUTO_CAPTURE else " (ON_AUTO_CAPTURE=0)"), alert=False)
         capture_log.start(f"cameras={','.join(s.role for s in slots)} reference={registry.reference_role} "
-                          f"auto_capture=off disk_limit={C.DISK_STOP_PERCENT:g}% qr_cameras={','.join(C.QR_CAMERAS) or 'all'}")
+                          f"auto_capture={'on' if auto_on else 'off'} disk_limit={C.DISK_STOP_PERCENT:g}% "
+                          f"qr_cameras={','.join(C.QR_CAMERAS) or 'all'}")
         disk_guard.start_monitor(stop)
         monitor.start(registry, stop)
         if C.QR_ENABLED:
