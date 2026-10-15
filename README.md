@@ -18,7 +18,7 @@ backend/
   camera/     slot, registry, device, controls, overlay, pipeline, worker  (depthai는 여기서만 import)
   api/        server (라우팅) + responses / state / sample / export / stream routes
   cli/        list_cameras, export_dataset  (python -m backend.cli.<이름>)
-  models/     모델 가중치
+  models/     모델 파일 (shoe_detection/: 신발 감지 모델, OAK 카메라 안에서 실행)
 .env        설정 (항목마다 설명과 가능한 값이 적혀 있음)
 captures/ logs/ exports/   실행 중 생기는 데이터
 ```
@@ -72,6 +72,15 @@ bash bin/setup_mac.sh                # 처음 한 번: .venv 생성 + 패키지 
 .venv/bin/python -m backend.cli.list_cameras     # 연결된 OAK의 장치 id와 .env에 붙일 ON_CAMERAS 줄
 .venv/bin/python -m backend.cli.export_dataset   # YOLO 데이터셋 내보내기 (옵션: --reviewed-only --val-ratio --no-negatives --max-side)
 ```
+
+### 신발 감지 모델 (기준 카메라에서 신발을 찾는 모델)
+`backend/models/shoe_detection/shoe_detection.rvc2.tar.xz`는 이 현장의 신발 사진으로 학습한 OAK(RVC2)용 모델입니다(클래스 `shoe`, 입력 512x384). 저장소에 들어 있고, 쓰려면 `.env`(저장소에 없음, 장비마다 따로 둠)에 아래를 넣고 앱을 다시 시작하세요.
+```
+ON_DETECTOR=model
+ON_MODEL_ARCHIVE=backend/models/shoe_detection/shoe_detection.rvc2.tar.xz
+ON_TARGET_CLASSES=shoe
+```
+`ON_MODEL_ARCHIVE`를 비우면 예전 방식(zoo의 COCO 모델 `ON_MODEL_ZOO`)으로 돌아갑니다. 신발이 있는데 잡히지 않으면 `ON_DETECT_CONF`를 낮춰 보세요.
 
 ## 문서 (`docs/`)
 | 파일 | 내용 |

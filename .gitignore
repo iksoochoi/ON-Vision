@@ -14,11 +14,17 @@ Thumbs.db
 .vscode/
 .idea/
 
-# model weights (large, kept out of git)
-/backend/models/
+# model weights (large, kept out of git); only the shoe detector for the camera (7.6 MB) is tracked
+/backend/models/*
+!/backend/models/shoe_detection/
+/backend/models/shoe_detection/*
+!/backend/models/shoe_detection/shoe_detection.rvc2.tar.xz
 
 # Claude Code
 /.claude/
 
 # local settings (each machine has its own)
 /.env
+
+# training work (data, models, scripts) stays on this PC
+/train/

@@ -3,3 +3,4 @@
 *.py text eol=lf
 *.pt binary
 *.pth binary
+*.xz binary

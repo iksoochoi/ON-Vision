@@ -17,6 +17,22 @@ def _load_archive(pipeline):
     return dai.NNArchive(dai.getModelFromZoo(desc))
 
 
+def _nn_input_type(archive):
+    """The pixel format a CUSTOM model's NN archive says it wants (e.g. RGB888p for a model trained on RGB
+    pictures), so the camera feeds the right channel order. BGR888p, as before, for the zoo model and when the
+    archive does not say."""
+    if not C.MODEL_ARCHIVE:
+        return dai.ImgFrame.Type.BGR888p
+    try:
+        name = str(archive.getConfig().model.inputs[0].preprocessing.daiType)
+        kind = getattr(dai.ImgFrame.Type, name)
+    except Exception:
+        print("Model: the archive does not name its input format: feeding BGR888p")
+        return dai.ImgFrame.Type.BGR888p
+    print(f"Model: the archive wants {name} input")
+    return kind
+
+
 def build_pipeline(pipeline, slot, slow_usb=False):
     """Create the nodes and output queues for one camera. Returns the queues in a dict."""
     cam = pipeline.create(dai.node.Camera).build()
@@ -44,7 +60,7 @@ def build_pipeline(pipeline, slot, slow_usb=False):
             nn_w, nn_h = archive.getInputSize()
             # STRETCH keeps the whole field of view, so bbox coordinates map 1:1 onto the frame.
             nn_input = cam.requestOutput(
-                size=(nn_w, nn_h), type=dai.ImgFrame.Type.BGR888p,
+                size=(nn_w, nn_h), type=_nn_input_type(archive),
                 resizeMode=dai.ImgResizeMode.STRETCH, fps=C.NN_FPS,
             )
             nn = pipeline.create(dai.node.DetectionNetwork).build(nn_input, archive)
