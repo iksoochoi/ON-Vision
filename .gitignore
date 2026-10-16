@@ -3,6 +3,7 @@
 /logs/*
 !/logs/README.md
 /exports/
+/backups/
 
 # python
 .venv/

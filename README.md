@@ -5,7 +5,7 @@
 ## 1. 프로젝트 구조
 
 ```
-bin/        setup_mac.sh (처음 한 번)  run.sh (수동 실행)  install_launchd.sh (자동 시작 서비스)
+bin/        setup_mac.sh (처음 한 번)  run.sh (수동 실행)  install_launchd.sh (자동 시작 서비스)  capture_backup.sh (하루치 통계+zip 백업 후 삭제)
 docs/       운영·사용 문서 (아래 목록)
 frontend/   page (HTML), css, js
 backend/
@@ -18,7 +18,7 @@ backend/
   camera/     slot, registry, device, controls, overlay, pipeline, worker  (depthai는 여기서만 import)
   api/        server (라우팅) + responses / state / sample / export / stream routes, feeds (SSE로 화면에 밀어 주는 것), state_payload
   health/     app.log (앱이 찍는 모든 것), collect.log (수집 문제), 카메라 감시(monitor), Google Chat 웹훅 알림(alerts)
-  cli/        list_cameras, export_dataset, test_alert, fps_probe, qr_bench  (python -m backend.cli.<이름>)
+  cli/        list_cameras, export_dataset, test_alert, fps_probe, qr_bench, capture_backup  (python -m backend.cli.<이름>)
   models/     모델 파일 (shoe_detection/: 신발 감지 모델, OAK 카메라 안에서 실행)
 .env        설정 (항목마다 설명과 가능한 값이 적혀 있음)
 captures/ logs/ exports/   실행 중 생기는 데이터
@@ -94,5 +94,6 @@ ON_TARGET_CLASSES=shoe
 | [storage-and-qr.md](docs/storage-and-qr.md) | 저장 구조, 신발 ID(QR) 찾는 순서 |
 | [capture-log.md](docs/capture-log.md) | `logs/capture.log` 형식과 읽는 법 |
 | [logs/README.md](logs/README.md) | 로그 파일마다 어떤 정보가 남는지 |
+| [capture-backup.md](docs/capture-backup.md) | 하루치 캡처를 통계와 함께 zip으로 백업하고 지우는 스크립트, readme.md 내용 |
 | [web-performance.md](docs/web-performance.md) | 세트가 많이 쌓여도 화면이 느려지지 않게 한 방법(메모리 색인, SSE), 측정 결과 |
 | [logs-and-alerts.md](docs/logs-and-alerts.md) | 로그 파일(app/collect/run), 카메라 감시, 수집 문제 Google Chat 알림 설정 |
