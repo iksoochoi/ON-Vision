@@ -3,6 +3,7 @@
     ./bin/capture_backup.sh                     today's sets, started at 23:59 (waits until then)
     ./bin/capture_backup.sh --date 2026-10-15   that day's sets, started now (the day is over)
     ./bin/capture_backup.sh --now               today's sets, started now
+    ./bin/capture_backup.sh --all               every day that has sets (up to today), one zip per day, oldest first
     ./bin/capture_backup.sh --dry-run           only say what would be done
 
 What it does, in this order (it stops at the first problem and then deletes nothing):
@@ -354,28 +355,29 @@ def wait_until(target):
         time.sleep(min(left, 30))
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--date", help="the day to back up, YYYY-MM-DD (default: today)")
-    ap.add_argument("--at", default="23:59", help="start at this time of the day (default 23:59)")
-    ap.add_argument("--now", action="store_true", help="do not wait for the time")
-    ap.add_argument("--out", help="folder for the zip (default ON_BACKUP_DIR, backups/ in the project)")
-    ap.add_argument("--keep", action="store_true", help="make the zip but do not delete the files from captures")
-    ap.add_argument("--dry-run", action="store_true", help="say what would be done, change nothing")
-    args = ap.parse_args(argv)
+def days_with_sets(C, upto):
+    """The days (date objects, oldest first) that have sets, up to and including `upto`: a pass counts for the day of
+    its first cut."""
+    metas, _ = load_sets(C)
+    first = {}
+    for meta, _mtime in metas:
+        key = (meta.get("burst") or {}).get("id") or meta["id"]
+        t = meta.get("timestamp") or ""
+        first[key] = min(first.get(key, t), t)
+    days = set()
+    for t in first.values():
+        try:
+            d = date.fromisoformat(t[:10])
+        except ValueError:
+            continue
+        if d <= upto:
+            days.add(d)
+    return sorted(days)
 
-    from ..core import config as C
-    day = date.fromisoformat(args.date) if args.date else date.today()
-    hh, mm = (int(x) for x in args.at.split(":"))
-    start = datetime.combine(day, datetime.min.time()).replace(hour=hh, minute=mm)
-    out_dir = Path(args.out).expanduser() if args.out else C.BACKUP_DIR
-    log(f"back up the sets of {day.isoformat()} from {C.CAPTURES_DIR} to {out_dir}"
-        + (" (dry run)" if args.dry_run else " (the files are deleted after the zip is checked)" if not args.keep else " (files are kept)"))
-    if not args.now and not args.dry_run and datetime.now() < start:
-        wait_until(start)
-    elif not args.now and datetime.now() >= start and day == date.today():
-        log(f"it is past {args.at} already: starting now")
 
+def backup_day(day, args, C, out_dir):
+    """Back up the sets of one day (the steps in the module text). Returns the exit code: 0 done (or nothing to do),
+    1 some files could not be deleted, 2 not enough room for the zip, 3 the zip did not check out."""
     passes, left_out = collect(day, C)
     if not passes:
         log(f"no sets of {day.isoformat()} were found" + (f" ({left_out['unsettled']} are still being saved)" if left_out["unsettled"] else ""))
@@ -448,6 +450,45 @@ def main(argv=None):
     log(f"deleted {deleted} files from {C.CAPTURES_DIR}" + (f"; {len(failed)} could not be deleted (first: {failed[0]})" if failed else ""))
     log("done. The app notices the removed sets within two minutes.")
     return 1 if failed else 0
+
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--date", help="the day to back up, YYYY-MM-DD (default: today)")
+    ap.add_argument("--all", action="store_true",
+                    help="every day that has sets up to the day (today unless --date), oldest first, one zip per day")
+    ap.add_argument("--at", default="23:59", help="start at this time of the day (default 23:59)")
+    ap.add_argument("--now", action="store_true", help="do not wait for the time")
+    ap.add_argument("--out", help="folder for the zip (default ON_BACKUP_DIR, backups/ in the project)")
+    ap.add_argument("--keep", action="store_true", help="make the zip but do not delete the files from captures")
+    ap.add_argument("--dry-run", action="store_true", help="say what would be done, change nothing")
+    args = ap.parse_args(argv)
+
+    from ..core import config as C
+    day = date.fromisoformat(args.date) if args.date else date.today()
+    hh, mm = (int(x) for x in args.at.split(":"))
+    start = datetime.combine(day, datetime.min.time()).replace(hour=hh, minute=mm)
+    out_dir = Path(args.out).expanduser() if args.out else C.BACKUP_DIR
+    log(f"back up the sets of {'every day up to ' if args.all else ''}{day.isoformat()} from {C.CAPTURES_DIR} to {out_dir}"
+        + (" (dry run)" if args.dry_run else " (the files are deleted after the zip is checked)" if not args.keep else " (files are kept)"))
+    if not args.now and not args.dry_run and datetime.now() < start:
+        wait_until(start)
+    elif not args.now and datetime.now() >= start and day == date.today():
+        log(f"it is past {args.at} already: starting now")
+
+    days = days_with_sets(C, day) if args.all else [day]
+    if args.all:
+        log(f"{len(days)} day(s) with sets: " + (", ".join(d.isoformat() for d in days) or "none"))
+    code = 0
+    for d in days:
+        if args.all:
+            log(f"==== {d.isoformat()} ====")
+        code = max(code, backup_day(d, args, C, out_dir))
+        if code >= 2:   # no room / a bad zip: the next day would meet the same problem
+            log("stopping here: the later days are left as they are")
+            break
+    return code
 
 
 if __name__ == "__main__":

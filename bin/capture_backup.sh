@@ -4,6 +4,7 @@
 #   ./bin/capture_backup.sh                     today's sets, started at 23:59 (leave it running; Ctrl+C cancels)
 #   ./bin/capture_backup.sh --now               today's sets, started now
 #   ./bin/capture_backup.sh --date 2026-10-15   that day's sets (a day that is over starts at once)
+#   ./bin/capture_backup.sh --all               every day that has sets (up to today), one zip per day, oldest first
 #   ./bin/capture_backup.sh --dry-run           only say what would be done, change nothing
 #   options: --at HH:MM (start time, default 23:59)  --out DIR (zip folder, default ON_BACKUP_DIR = backups/)
 #            --keep (make the zip but keep the files)
