@@ -1,5 +1,18 @@
-.browse { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: calc(100vh - var(--chrome-h, 90px)); }
-@media (max-width: 800px) { .browse { grid-template-columns: 1fr; height: auto; } .shoelist { max-height: 40vh; } }
+.browse { display: grid; grid-template-columns: 138px 280px minmax(0, 1fr); height: calc(100vh - var(--chrome-h, 90px)); }
+@media (max-width: 800px) {
+  .browse { grid-template-columns: 1fr; height: auto; }
+  .shoelist { max-height: 40vh; }
+  .datelist { border-right: 0; border-bottom: 1px solid var(--line); }
+  #dates { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; }
+}
+.datelist { border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; padding: 0 0 0 0; }
+.datehead { padding: 14px 12px 8px; color: var(--dim); font: 680 12px/1 var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+#dates { overflow-y: auto; padding: 0 8px 8px; flex: 1; }
+.dateitem { padding: 8px 10px; border-radius: 10px; cursor: pointer; margin-bottom: 2px; white-space: nowrap; }
+.dateitem:hover { background: #243026; }
+.dateitem.sel { box-shadow: inset 0 0 0 2px var(--accent); background: rgba(214, 242, 92, .08); }
+.dateitem .day { font: 680 14px/1.25 var(--mono); }
+.dateitem .sub { color: var(--dim); font-size: 12px; }
 .shoelist { border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
 .shoelist input { margin: 12px; }
 #shoes { overflow-y: auto; padding: 0 8px 8px; flex: 1; }
@@ -13,7 +26,6 @@
 }
 .shoe:hover { background: #243026; }
 .shoe.sel { box-shadow: inset 0 0 0 2px var(--accent); background: rgba(214, 242, 92, .08); }
-.shoe img { width: 64px; height: 48px; object-fit: cover; border-radius: 8px; background: #070a08; flex: none; }
 .shoe .name { font: 680 14px/1.25 var(--mono); word-break: break-all; }
 .shoe .sub { color: var(--dim); font-size: 12px; }
 .shoe.noid .name { font-family: inherit; color: var(--warn); }

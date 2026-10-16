@@ -1,12 +1,30 @@
-let history = [];   // newest first
+// The QR page. Nothing is polled: the first load fetches what is there, then the server pushes (SSE):
+//   qr        a code was read          qr_scan   what the live scan of each camera sees (every ~2 s)
+//   qr_stats  the sets changed: new statistics (at most every ~2 s)
+// If the connection drops (or the server says "resync"), everything is fetched again once.
+
+let history = [];   // newest first, at most MAX_HISTORY
 let scanning = {};
+let clockSkew = 0;  // server time - this browser's time (s): relative times stay right on another computer
+const MAX_HISTORY = 200;
+const MAX_ROWS = 100;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const serverNow = () => Date.now() / 1000 + clockSkew;
 
 function ago(epoch) {
-  const s = Math.max(0, Math.round(Date.now() / 1000 - epoch));
+  const s = Math.max(0, Math.round(serverNow() - epoch));
   return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`;
+}
+
+function fmtBytes(n) {
+  if (!n) return '0';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return (v >= 100 || i === 0 ? v.toFixed(0) : v.toFixed(1)) + ' ' + units[i];
 }
 
 function renderHero() {
@@ -27,7 +45,7 @@ function renderHero() {
   const link = $('sampleLink');
   link.hidden = !e.sample;
   if (e.sample) link.href = '/browse?sample=' + encodeURIComponent(e.sample);
-  hero.classList.toggle('fresh', Date.now() / 1000 - e.epoch < 10);
+  hero.classList.toggle('fresh', serverNow() - e.epoch < 10);
 }
 
 function renderChips() {
@@ -37,7 +55,7 @@ function renderChips() {
   for (const role of roles) {
     const s = scanning[role];
     const chip = document.createElement('span');
-    const recent = Date.now() / 1000 - s.epoch < 10;
+    const recent = serverNow() - s.epoch < 10;
     const px = s.size_px ? ` ${Math.round(s.size_px)}px` : '';
     const located = !s.found && s.size_px;   // a code was placed in the picture but could not be read
     chip.className = 'chip ' + (s.found ? 'ok' : (located || !recent ? 'warn' : ''));
@@ -54,7 +72,7 @@ function renderRows() {
     return;
   }
   tbody.innerHTML = '';
-  for (const e of history.slice(0, 100)) {
+  for (const e of history.slice(0, MAX_ROWS)) {   // the table never grows past MAX_ROWS rows
     const tr = document.createElement('tr');
     tr.innerHTML =
       `<td>${esc(e.time.replace('T', ' '))}</td><td>${esc(e.role.toUpperCase())}</td>` +
@@ -79,14 +97,16 @@ function renderDaily(data) {
   renderSizes();
   const tbody = $('dailyRows'), foot = $('dailyTotal');
   if (!dailyData.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-row">None yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-row">None yet</td></tr>';
     foot.innerHTML = '';
     return;
   }
   const rate = (ok, n) => (n ? (100 * ok / n).toFixed(1) + '%' : '-');
+  // Size: what the sets' pictures and thumbnails take on the disk; the title gives the average per set
   const cells = (r) => `<td class="num">${r.sets}</td><td class="num">${r.ok}</td>` +
     `<td class="num${r.fail ? ' bad' : ''}">${r.fail}${r.fail ? ` <small class="dim">(${r.seen} seen)</small>` : ''}</td>` +
-    `<td class="num">${rate(r.ok, r.sets)}</td>`;
+    `<td class="num">${rate(r.ok, r.sets)}</td>` +
+    `<td class="num" title="${r.sets ? fmtBytes(r.size / r.sets) + ' per set' : ''}">${fmtBytes(r.size)}</td>`;
   let html = '';
   for (const d of dailyData) {
     const open = openDays.has(d.date);
@@ -100,8 +120,8 @@ function renderDaily(data) {
     }
   }
   tbody.innerHTML = html;
-  const sum = dailyData.reduce((a, d) => ({ sets: a.sets + d.sets, ok: a.ok + d.ok, fail: a.fail + d.fail, seen: a.seen + d.seen }),
-    { sets: 0, ok: 0, fail: 0, seen: 0 });
+  const sum = dailyData.reduce((a, d) => ({ sets: a.sets + d.sets, ok: a.ok + d.ok, fail: a.fail + d.fail, seen: a.seen + d.seen, size: a.size + (d.size || 0) }),
+    { sets: 0, ok: 0, fail: 0, seen: 0, size: 0 });
   foot.innerHTML = `<tr><td>Total</td>${cells(sum)}</tr>`;
 }
 
@@ -138,18 +158,23 @@ $('dailyRows').onclick = (ev) => {
   renderDaily();
 };
 
-async function loadDaily() {
-  try { renderDaily(await fetch('/api/qr/daily').then((r) => r.json())); } catch (e) {}
+function setEnabled(enabled) {
+  $('enabledChip').textContent = enabled ? 'QR reading on' : 'QR reading off (.env ON_QR=0)';
+  $('enabledChip').className = 'chip ' + (enabled ? 'ok' : 'warn');
 }
 
-async function load() {
+// The first load (and a catch-up after the connection dropped): what the server has now.
+async function loadAll() {
   try {
-    const q = await fetch('/api/qr').then((r) => r.json());
-    history = q.history;
+    const [q, daily] = await Promise.all([
+      fetch('/api/qr').then((r) => r.json()),
+      fetch('/api/qr/daily').then((r) => r.json()),
+    ]);
+    history = q.history.slice(0, MAX_HISTORY);
     scanning = q.scanning;
-    $('enabledChip').textContent = q.enabled ? 'QR reading on' : 'QR reading off (.env ON_QR=0)';
-    $('enabledChip').className = 'chip ' + (q.enabled ? 'ok' : 'warn');
-  } catch (e) {}
+    setEnabled(q.enabled);
+    renderDaily(daily);
+  } catch (e) { /* the next push or reconnect tries again */ }
   renderHero(); renderChips(); renderRows();
 }
 
@@ -162,21 +187,39 @@ $('copyBtn').onclick = async () => {
   setTimeout(() => { $('copyBtn').textContent = 'Copy'; }, 1200);
 };
 
-fetch('/api/state').then((r) => r.json()).then((st) => {
-  document.title = 'ON Data Collector';
-}).catch(() => {});
+// ---- the server pushes -------------------------------------------------------------------------------------
 
-load();
-loadDaily();
-setInterval(load, 3000);   // scan status + relative times
-setInterval(loadDaily, 15000);
-new EventSource('/events').onmessage = (ev) => {
+const source = new EventSource('/events?topics=qr,qrpage');
+let connected = false;
+source.onopen = () => {
+  if (connected) loadAll();   // reconnected: catch up on what was missed meanwhile
+  connected = true;
+};
+source.onmessage = (ev) => {
   let data;
   try { data = JSON.parse(ev.data); } catch (err) { return; }
-  if (data.key === 'qr') {
-    history.unshift(data.entry);
-    history = history.slice(0, 200);
-    renderHero(); renderRows();
-    if (data.entry.source === 'capture') loadDaily();   // a set was just saved
+  switch (data.key) {
+    case 'qr':
+      history.unshift(data.entry);
+      history.length = Math.min(history.length, MAX_HISTORY);
+      renderHero(); renderRows();
+      break;
+    case 'qr_scan':
+      scanning = data.scanning;
+      clockSkew = data.now - Date.now() / 1000;
+      setEnabled(data.enabled);
+      renderChips(); renderHero();
+      break;
+    case 'qr_stats':
+      renderDaily(data.stats);
+      break;
+    case 'resync':
+      loadAll();
+      break;
   }
 };
+
+// "3s ago" keeps counting between the pushes, without asking the server
+setInterval(() => { if (!document.hidden) { renderHero(); renderChips(); } }, 1000);
+
+loadAll();

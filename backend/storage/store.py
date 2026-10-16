@@ -47,7 +47,8 @@ class SampleStore:
         self._id_lock = threading.Lock()
         self._label_lock = threading.Lock()
         self._reserved = set()
-        self._shoes = ShoeIndex(self.get)
+        # the index of every set (summaries in memory): the pages' questions are answered from it, not from the disk
+        self._shoes = ShoeIndex(self.get, on_external_change=lambda: broadcast({"key": "samples_changed"}))
         # several writers: one that waits for a late QR read must not hold up the next shoe
         for n in range(SAVE_WORKERS):
             threading.Thread(target=self._worker, name=f"sample-writer-{n}", daemon=True).start()
@@ -159,7 +160,7 @@ class SampleStore:
         try:   # the capture log: what was saved, per camera, and how much there is now
             first = sets[0][2]
             capture_log.job(first.get("source") or "?", results, shoe, [r for r, _ in C.CAMERAS],
-                            time.time() - enqueued, self.totals(), burst=(first.get("burst") or {}).get("id"))
+                            time.time() - enqueued, self.totals(wait=False), burst=(first.get("burst") or {}).get("id"))
         except Exception as e:  # logging must never get in the way of saving
             print(f"[capture log] failed: {e}")
 
@@ -243,6 +244,7 @@ class SampleStore:
                     first = next(c["view"] for c in meta["qr"] if c["text"] == text)
                     qr_hub.add(first, text, "capture", sample_id)
             save_meta(meta)
+            self._shoes.update(sample_id)
             print(f"Saved sample {sample_id} ({meta.get('source')}, {len(meta['views'])} view(s)"
                   + (f", shoe {shoe_id!r} [{source}]" if shoe_id else "") + ")")
             broadcast({"key": "samples_changed", "new": sample_id})
@@ -276,69 +278,54 @@ class SampleStore:
             return None
 
     def view_file(self, sample_id, view, thumb=False):
-        """Path of a requested view's image (empty view = the primary view), or None if unknown."""
-        meta = self.get(sample_id)
-        if meta is None:
-            return None
-        primary = primary_role(meta)
+        """Path of a requested view's image (empty view = the primary view), or None if unknown. The index knows
+        the views: no set file is read for a picture (a page asks for hundreds of thumbnails)."""
+        info = self._shoes.summary(sample_id)
+        if info is not None:
+            primary, views = info["primary"], info["views"]
+        else:   # not indexed (yet): ask the file
+            meta = self.get(sample_id)
+            if meta is None:
+                return None
+            primary, views = primary_role(meta), list(meta.get("views") or [])
         role = view or primary
-        if role != primary and role not in (meta.get("views") or {}):
+        if role != primary and role not in views:
             return None
         return (thumb_path if thumb else image_path)(sample_id, role, primary=role == primary)
 
-    def list(self, status="all", limit=0):
-        """Newest first. status: all | unlabeled | ok | ng | reject. limit > 0 stops after that many
-        (the live page only needs the latest few and must not read every sample file)."""
-        items = []
-        for p in sorted(SETS_DIR.glob("*.json"), key=lambda p: (time_key(p.stem), p.stem), reverse=True):
-            meta = self.get(p.stem)
-            if meta is None or "id" not in meta or not primary_image_path(meta).exists():
-                continue
-            if status != "all" and label_status(meta) != status:
-                continue
-            items.append(meta)
-            if limit and len(items) >= limit:
-                break
-        return items
+    def list(self, status="all", limit=0, offset=0):
+        """Newest first. status: all | unlabeled | ok | ng | reject. limit > 0 stops after that many (offset skips
+        the first ones); only the sets that are returned are read from the disk."""
+        return self._shoes.recent(status, limit, offset)
 
     # ---- by shoe (the browse page) -------------------------------------------
 
-    def totals(self):
-        return self._shoes.totals()
+    def totals(self, wait=True):
+        return self._shoes.totals(wait)
 
-    def shoes(self):
-        return self._shoes.shoes()
+    def shoes(self, date=None):
+        return self._shoes.shoes(date)
 
-    def by_shoe(self, shoe):
-        return self._shoes.by_shoe(shoe)
+    def by_shoe(self, shoe, date=None):
+        return self._shoes.by_shoe(shoe, date)
+
+    def dates(self):
+        return self._shoes.dates()
 
     def daily_qr(self):
         return self._shoes.daily()
 
+    def shoes_page(self, limit=0, query="", **kwargs):
+        return self._shoes.shoes_page(limit, query, **kwargs)
+
     def counts(self):
-        counts = {"all": 0, "passes": 0, "unlabeled": 0, "ok": 0, "ng": 0, "reject": 0,
-                  "with_bbox": 0, "bbox_reviewed": 0}
-        passes = set()
-        for meta in self.list():
-            passes.add((meta.get("burst") or {}).get("id") or meta["id"])
-            counts["all"] += 1
-            counts[label_status(meta)] += 1
-            bbox = meta.get("bbox")
-            if bbox:
-                counts["with_bbox"] += 1
-                counts["bbox_reviewed"] += bool(bbox.get("reviewed"))
-        counts["passes"] = len(passes)
-        return counts
+        return self._shoes.counts()
 
     # ---- mutating -----------------------------------------------------------
 
     def burst_ids(self, sample_id):
         """Ids of the samples taken for the same shoe pass (before/center/after), including this one."""
-        meta = self.get(sample_id)
-        burst = (meta or {}).get("burst") or {}
-        if not burst.get("id"):
-            return [sample_id] if meta else []
-        return [m["id"] for m in self.list() if (m.get("burst") or {}).get("id") == burst["id"]]
+        return self._shoes.burst_ids(sample_id)
 
     def set_label(self, sample_id, status, defects, note, views=None, apply_burst=False):
         """Validate and store a label. Returns (meta, error_message).
@@ -370,6 +357,7 @@ class SampleStore:
                     "labeled_at": datetime.now().isoformat(timespec="seconds"),
                 }
                 save_meta(meta)
+                self._shoes.update(target)
                 if target == sample_id:
                     result = meta
         broadcast({"key": "samples_changed"})
@@ -385,6 +373,7 @@ class SampleStore:
             if err:
                 return None, err
             save_meta(meta)
+            self._shoes.update(sample_id)
         broadcast({"key": "samples_changed"})
         return meta, None
 
@@ -489,6 +478,7 @@ class SampleStore:
                 return False
             meta["label"] = None
             save_meta(meta)
+            self._shoes.update(sample_id)
         broadcast({"key": "samples_changed"})
         return True
 
@@ -498,13 +488,15 @@ class SampleStore:
     def delete_many(self, sample_ids):
         """Delete these samples (pictures, thumbnails and files), e.g. the cuts of one set. Returns how many
         existed and were deleted; the browsers are told once."""
-        done = 0
+        done, removed = 0, []
         for sample_id in dict.fromkeys(sample_ids):
             meta = self.get(sample_id)
             if meta is None:
                 continue
             self._remove_files(sample_id, list(meta.get("views") or [primary_role(meta)]))
+            removed.append(sample_id)
             done += 1
+        self._shoes.remove(removed)
         if done:
             broadcast({"key": "samples_changed"})
         return done

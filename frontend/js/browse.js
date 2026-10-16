@@ -7,7 +7,10 @@ const CUT_NAME = { before: 'Before', center: 'Center', after: 'After' };
 const CUT_ORDER = { before: 0, center: 1, after: 2 };
 const MAX_LISTED = 400;
 
-let shoes = [];            // /api/shoes
+let shoes = [];            // /api/shoes: the shoes on the list (the first MAX_LISTED that match the search)
+let shoeTotals = null;     // ... and the totals of the whole list
+let dates = [];            // the days that have sets (newest first), with their counts
+let dateFilter = '';       // the day shown ('' = all days): ?date=2026-10-15
 let current;               // the selected shoe_id: a string, null = no QR value was read, undefined = none selected
 let metas = [];            // the cuts of the selected shoe, newest first
 let sets = [];             // those cuts grouped into sets, newest first
@@ -25,6 +28,14 @@ const cutName = (m) => (m.burst ? CUT_NAME[m.burst.kind] || '' : 'Manual');
 const shoeName = (id) => (id === null ? 'No ID (QR not read)' : id);
 const hasView = (m, role) => (m.views ? role in m.views : role === m.primary_view);
 const imageUrl = (m, role, kind) => `/api/samples/${m.id}/${kind}?view=${encodeURIComponent(role)}`;
+function fmtBytes(n) {
+  if (!n) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return (v >= 100 || i === 0 ? v.toFixed(0) : v.toFixed(1)) + ' ' + units[i];
+}
 const shoeParam = (id) => encodeURIComponent(id === null ? '' : id);
 
 async function getJson(url) {
@@ -71,33 +82,73 @@ function mergeCams() {
 
 function renderShoes() {
   const box = $('shoes');
-  const needle = $('search').value.trim().toLowerCase();
-  const list = shoes.filter((s) => !needle || shoeName(s.shoe_id).toLowerCase().includes(needle));
+  const needle = $('search').value.trim();
   box.replaceChildren();
-  if (!list.length) {
+  if (!shoes.length) {
     box.appendChild(el('div', 'empty', needle ? 'No matches' : 'No saved images'));
   }
-  for (const s of list.slice(0, MAX_LISTED)) {
+  for (const s of shoes) {
     const item = el('div', 'shoe' + (s.shoe_id === null ? ' noid' : '') + (s.shoe_id === current ? ' sel' : ''));
     item.title = shoeName(s.shoe_id);
-    const im = document.createElement('img');
-    im.loading = 'lazy';
-    im.alt = '';
-    im.src = `/api/samples/${s.thumb.id}/thumb?view=${encodeURIComponent(s.thumb.view)}`;
     const text = el('div');
     text.append(el('div', 'name', shoeName(s.shoe_id)),
-      el('div', 'sub', `${s.sets} sets · ${s.images} images`), el('div', 'sub', `last ${fmtTime(s.last)}`));
-    item.append(im, text);
+      el('div', 'sub', `${s.sets} sets · ${s.images} images · ${fmtBytes(s.bytes)}`), el('div', 'sub', `last ${fmtTime(s.last)}`));
+    item.append(text);
     item.onclick = () => selectShoe(s.shoe_id);
     box.appendChild(item);
   }
-  if (list.length > MAX_LISTED) box.appendChild(el('div', 'hint', `… ${list.length - MAX_LISTED} more. Narrow the search.`));
-  const sets_ = shoes.reduce((n, s) => n + s.sets, 0), images = shoes.reduce((n, s) => n + s.images, 0);
-  $('totals').textContent = `${shoes.filter((s) => s.shoe_id !== null).length} shoes · ${sets_} sets · ${images} images`;
+  if (shoeTotals && shoeTotals.matches > MAX_LISTED) {
+    box.appendChild(el('div', 'hint', `… ${shoeTotals.matches - MAX_LISTED} more. Narrow the search.`));
+  }
+  if (shoeTotals) {
+    $('totals').textContent = `${shoeTotals.shoes} shoes · ${shoeTotals.sets} sets · ${shoeTotals.images} images · ${fmtBytes(shoeTotals.bytes)}`;
+  }
 }
 
+function renderDates() {
+  const box = $('dates');
+  box.replaceChildren();
+  const all = el('div', 'dateitem' + (dateFilter === '' ? ' sel' : ''));
+  all.append(el('div', 'day', 'All dates'),
+    el('div', 'sub', `${dates.reduce((n, d) => n + d.sets, 0)} sets`));
+  all.onclick = () => selectDate('');
+  box.appendChild(all);
+  for (const d of dates) {
+    const item = el('div', 'dateitem' + (d.date === dateFilter ? ' sel' : ''));
+    item.title = `${d.date}: ${d.sets} sets, ${d.shoes} shoes, ${d.images} images, ${fmtBytes(d.bytes)}`;
+    item.append(el('div', 'day', d.date.slice(5)), el('div', 'sub', `${d.sets} sets · ${fmtBytes(d.bytes)}`));
+    item.onclick = () => selectDate(d.date);
+    box.appendChild(item);
+  }
+}
+
+// A day was picked: the shoe list and the pictures of the open shoe show that day only.
+async function selectDate(date) {
+  if (date === dateFilter) return;
+  dateFilter = date;
+  try {
+    await refreshShoes();
+    if (current !== undefined && shoes.some((s) => s.shoe_id === current)) await selectShoe(current);
+    else if (shoes.length) await selectShoe(shoes[0].shoe_id);
+    else { current = undefined; metas = []; sets = []; renderDetail(false); setUrl(); }
+  } catch (e) { /* the next event tries again */ }
+}
+
+// The server sends the first MAX_LISTED shoes that match the search (and the one on screen), and the totals of the
+// whole list: the page does not grow with the number of shoes.
 async function refreshShoes() {
-  shoes = await getJson('/api/shoes');
+  const query = encodeURIComponent($('search').value.trim());
+  const include = current === undefined ? '' : `&include=${shoeParam(current)}`;
+  const day = dateFilter ? `&date=${encodeURIComponent(dateFilter)}` : '';
+  const reply = await getJson(`/api/shoes?limit=${MAX_LISTED}&q=${query}${include}${day}`);
+  shoes = reply.shoes;
+  shoeTotals = reply.totals;
+  dates = reply.dates || [];
+  if (dateFilter && !dates.some((d) => d.date === dateFilter)) {   // that day has no sets (any more): show all days
+    dateFilter = '';
+    return refreshShoes();
+  }
+  renderDates();
   renderShoes();
 }
 
@@ -105,12 +156,12 @@ async function refreshShoes() {
 
 function setUrl() {
   if (current === undefined) return;
-  history.replaceState(null, '', `/browse?shoe=${shoeParam(current)}&mode=${mode}`);
+  history.replaceState(null, '', `/browse?shoe=${shoeParam(current)}&mode=${mode}` + (dateFilter ? `&date=${dateFilter}` : ''));
 }
 
 async function selectShoe(id, keepScroll) {
   current = id;
-  metas = await getJson('/api/samples?shoe=' + shoeParam(id));
+  metas = await getJson('/api/samples?shoe=' + shoeParam(id) + (dateFilter ? `&date=${encodeURIComponent(dateFilter)}` : ''));
   sets = groupSets(metas);
   camOrder = mergeCams();
   renderShoes();
@@ -253,7 +304,11 @@ ${fmtTime(s.time)} · ${s.cuts.length} frames · ${images} images
 
 $('modeSets').onclick = () => { mode = 'sets'; renderDetail(false); setUrl(); };
 $('modeCams').onclick = () => { mode = 'cams'; renderDetail(false); setUrl(); };
-$('search').addEventListener('input', renderShoes);
+let searchTimer = null;
+$('search').addEventListener('input', () => {   // the server searches: wait until the typing pauses
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => refreshShoes().catch(() => {}), 250);
+});
 
 // ---- lightbox: the picture at full size, ◀ ▶ step through the pictures on screen ---------------------
 
@@ -308,9 +363,16 @@ async function refreshAll() {
   } catch (e) { /* the next event tries again */ }
 }
 
-new EventSource('/events').onmessage = (e) => {
+const source = new EventSource('/events?topics=data');
+let connected = false;
+source.onopen = () => {
+  if (connected) refreshAll();   // reconnected: catch up on what was missed meanwhile
+  connected = true;
+};
+source.onmessage = (e) => {
   let data;
   try { data = JSON.parse(e.data); } catch (err) { return; }
+  if (data.key === 'resync') { refreshAll(); return; }
   if (data.key !== 'samples_changed') return;
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => (lightbox.hidden ? refreshAll() : (staleWhileOpen = true)), 700);
@@ -321,13 +383,12 @@ new EventSource('/events').onmessage = (e) => {
 async function init() {
   const params = new URLSearchParams(location.search);
   if (params.get('mode') === 'cams') mode = 'cams';
+  dateFilter = params.get('date') || '';
   try {
     const st = await getJson('/api/state?light=1');
     apiCams = st.cams.map((c) => c.role);
     document.title = 'ON Data Collector';
   } catch (e) { /* the page works without it */ }
-  await refreshShoes();
-
   let want;                                           // which shoe to open first
   if (params.get('sample')) {
     try {
@@ -338,6 +399,8 @@ async function init() {
   } else if (params.has('shoe')) {
     want = params.get('shoe') || null;
   }
+  current = want;                                     // the list then includes it, whatever the search says
+  await refreshShoes();
   if (want === undefined || !shoes.some((s) => s.shoe_id === want)) want = shoes.length ? shoes[0].shoe_id : undefined;
   if (want === undefined) { renderDetail(false); return; }
   await selectShoe(want);

@@ -439,12 +439,9 @@ function renderShots() {
   if (qr) bar.querySelector('.mono').textContent = qr;
 }
 
-async function refreshCaptures() {
-  try {
-    const list = await fetch('/api/samples?limit=6').then((r) => r.json());
-    shotSet = pickLatestSet(list);
-    renderShots();
-  } catch (e) {}
+function showCaptures(list) {   // the strip of the latest shoe pass (its cuts are the newest sets)
+  shotSet = pickLatestSet(list.slice(0, 6));
+  renderShots();
 }
 
 // ---- lightbox (a captured picture at full size) -----------------------------------------------------
@@ -733,8 +730,6 @@ function renderAll(st) {
   renderTiles();
   updateCamList();
   renderCamChip();
-  const unlabeledChip = document.getElementById('unlabeledChip');   // the labeling menu is hidden
-  if (st.counts && unlabeledChip) unlabeledChip.textContent = st.counts.unlabeled;
   const det = st.detector;
   document.getElementById('detectorChip').textContent =
     det.mode === 'background' ? 'Detect: background'
@@ -747,17 +742,25 @@ function renderAll(st) {
   const bgChip = document.getElementById('bgChip');
   bgChip.textContent = `${refRole.toUpperCase()} · ` + (bg.exists ? 'Background ' + bg.updated.replace('T', ' ') : 'No background');
   bgChip.className = 'chip ' + (bg.exists ? 'ok' : 'warn');
-  if (st.counts) document.getElementById('autoInfo').textContent =
-    `This run: ${st.auto_count} auto sets · ${st.counts.passes} saved sets (${st.counts.all} frames)`;
+  renderCounts(st.counts, st.auto_count);
   document.title = 'ON Data Collector';
   renderQr(st.qr && st.qr.latest);
 }
 
 let firstState = true;
+let lastState = null;   // the last whole state; the pushed ones (SSE "state") change parts of it
+
+function renderCounts(counts, autoCount) {
+  const unlabeledChip = document.getElementById('unlabeledChip');   // the labeling menu is hidden
+  if (counts && unlabeledChip) unlabeledChip.textContent = counts.unlabeled;
+  if (counts) document.getElementById('autoInfo').textContent =
+    `This run: ${autoCount} auto sets · ${counts.passes} saved sets (${counts.all} frames)`;
+}
 
 async function refreshState(light) {
   try {
-    const st = await fetch('/api/state' + (light === true ? '?light=1' : '')).then((r) => r.json());
+    const st = await fetch('/api/state').then((r) => r.json());
+    lastState = st;
     setState(st);
     if (firstState) {
       firstState = false;
@@ -776,25 +779,31 @@ async function refreshState(light) {
   } catch (e) { say('Could not reach the server'); }
 }
 
-async function refreshRecent() {
+const recentCount = () => (lastState && lastState.ui && lastState.ui.recent_count) || 6;
+
+function showRecent(list) {
   const recent = document.getElementById('recent');
   if (!recent) return;
+  recent.innerHTML = '';
+  for (const m of list.slice(0, recentCount())) {
+    const a = document.createElement('a');
+    a.href = '/browse?sample=' + m.id;
+    const im = document.createElement('img');
+    im.src = `/api/samples/${m.id}/thumb`;
+    const kind = m.burst ? { before: 'Before', center: 'Center', after: 'After' }[m.burst.kind] : '';
+    im.title = m.id + (m.views ? ` (${Object.keys(m.views).length} views)` : '') + (kind ? ` · ${kind}` : '')
+      + (m.qr && m.qr.length ? ` · QR ${m.qr[0].text}` : '');
+    a.appendChild(im);
+    recent.appendChild(a);
+  }
+}
+
+// The newest sets: fetched once at load and after a reconnect; later the server pushes them (live_data).
+async function loadSets() {
   try {
-    // light state + only the newest samples: neither may read every sample file
-    const st = await fetch('/api/state?light=1').then((r) => r.json());
-    const list = await fetch('/api/samples?limit=' + st.ui.recent_count).then((r) => r.json());
-    recent.innerHTML = '';
-    for (const m of list) {
-      const a = document.createElement('a');
-      a.href = '/browse?sample=' + m.id;
-      const im = document.createElement('img');
-      im.src = `/api/samples/${m.id}/thumb`;
-      const kind = m.burst ? { before: 'Before', center: 'Center', after: 'After' }[m.burst.kind] : '';
-      im.title = m.id + (m.views ? ` (${Object.keys(m.views).length} views)` : '') + (kind ? ` · ${kind}` : '')
-        + (m.qr && m.qr.length ? ` · QR ${m.qr[0].text}` : '');
-      a.appendChild(im);
-      recent.appendChild(a);
-    }
+    const list = await fetch('/api/samples?limit=' + Math.max(recentCount(), 6)).then((r) => r.json());
+    showRecent(list);
+    showCaptures(list);
   } catch (e) {}
 }
 
@@ -882,15 +891,36 @@ document.getElementById('streamAllOff').onclick = async () => {
 let stateTimer = null;
 const refreshStateSoon = () => { clearTimeout(stateTimer); stateTimer = setTimeout(refreshState, 250); };
 
-refreshState().then(refreshRecent);
-refreshCaptures();
-setInterval(() => refreshState(true), 2500);   // keeps fps / USB / online status current
+refreshState().then(loadSets);
 
-let recentTimer = null;
-new EventSource('/events').onmessage = (e) => {
+// Nothing is polled: the server pushes (SSE). "state" every few seconds while this page is open (fps, USB, online,
+// disk, counts), "live_data" when a capture was saved (the newest sets + counts). After a dropped connection (or a
+// "resync") everything is fetched once again.
+function onPushedState(partial) {
+  if (!lastState) return;   // the first whole state has not arrived yet
+  lastState = Object.assign({}, lastState, partial);
+  setState(lastState);
+  refreshCamValues();
+  renderAll(lastState);
+}
+
+const source = new EventSource('/events?topics=live,qr');
+let connected = false;
+source.onopen = () => {
+  if (connected) refreshState().then(loadSets);   // reconnected: catch up on what was missed meanwhile
+  connected = true;
+};
+source.onmessage = (e) => {
   let data;
   try { data = JSON.parse(e.data); } catch (err) { return; }
   switch (data.key) {
+    case 'state': onPushedState(data.state); break;
+    case 'live_data':
+      showRecent(data.recent);
+      showCaptures(data.recent);
+      if (lastState) { lastState.counts = data.counts; renderCounts(data.counts, lastState.auto_count); }
+      break;
+    case 'resync': refreshState().then(loadSets); break;
     case 'cam':
       setParamLocal(data.role || 'all', data.name, data.value);
       refreshCamValues();
@@ -913,10 +943,5 @@ new EventSource('/events').onmessage = (e) => {
       say((data.role ? data.role.toUpperCase() + ' ' : '') + (data.value ? 'background saved' : 'background save failed'));
       refreshStateSoon();
       break;
-    case 'samples_changed':
-      clearTimeout(recentTimer);
-      recentTimer = setTimeout(() => { refreshRecent(); refreshCaptures(); refreshStateSoon(); }, 300);
-      break;
   }
 };
-

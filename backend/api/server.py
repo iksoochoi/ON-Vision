@@ -15,6 +15,7 @@ from ..detect.background import get_background
 from ..qr.hub import hub as qr_hub
 from ..storage.paths import ID_RE
 from ..storage.store import store
+from . import feeds
 from .export_routes import ExportRoutes
 from .responses import STATIC_FILES, ResponsesMixin
 from .sample_routes import SampleRoutes
@@ -47,24 +48,40 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, St
             else:
                 self._send_snapshot(slot, query)
         elif path == "/events":
-            self._stream_events()
+            topics = [t for t in query.get("topics", [""])[0].split(",") if t]
+            self._stream_events(topics or None)
         elif path == "/categories":
             self._send_json([{"group": g, "items": items} for g, items in CATEGORIES.items()])
         elif path == "/api/state":
             # ?light=1 skips the sample counts (they read every sample file): for frequent polling
             self._send_json(self._state_payload(light=query.get("light", ["0"])[0] == "1"))
         elif path == "/api/shoes":
-            self._send_json(store.shoes())
+            # ?limit=&q=&include=<shoe>: one page of the list + the totals of the whole list ({"shoes", "totals"});
+            # without them, the whole list (older callers)
+            args = self._query_with_blanks()
+            if any(k in args for k in ("limit", "q", "include", "date")):
+                try:
+                    limit = max(0, int(args.get("limit", ["0"])[0]))
+                except ValueError:
+                    limit = 0
+                extra = {"include": args["include"][0] or None} if "include" in args else {}   # "" = no QR value
+                date = args.get("date", [""])[0] or None
+                shoes, totals = store.shoes_page(limit, args.get("q", [""])[0], date=date, **extra)
+                self._send_json({"shoes": shoes, "totals": totals, "dates": store.dates()})
+            else:
+                self._send_json(store.shoes())
         elif path == "/api/samples" and "shoe" in self._query_with_blanks():
             # ?shoe=<QR value>: the sets of one shoe, newest first; an empty value = no QR value was read
-            self._send_json(store.by_shoe(self._query_with_blanks()["shoe"][0] or None))
+            args = self._query_with_blanks()
+            self._send_json(store.by_shoe(args["shoe"][0] or None, args.get("date", [""])[0] or None))
         elif path == "/api/samples":
             status = query.get("status", ["all"])[0]
             try:
                 limit = max(0, int(query.get("limit", ["0"])[0]))
+                offset = max(0, int(query.get("offset", ["0"])[0]))
             except ValueError:
-                limit = 0
-            self._send_json(store.list(status, limit))
+                limit = offset = 0
+            self._send_json(store.list(status, limit, offset))
         elif path == "/api/background/image":
             role = query.get("role", [registry.reference_role])[0]
             jpg = get_background(role).image_jpg() if registry.get(role) else None
@@ -209,6 +226,7 @@ def start_server():
     ThreadingHTTPServer.allow_reuse_address = True
     server = ThreadingHTTPServer((HOST, CONTROL_PORT), ControlHandler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    feeds.start()   # what is pushed over SSE (state, new sets, QR statistics)
     print("OAK Labeling UI:")
     print(f"  - 로컬:  http://localhost:{CONTROL_PORT}   (라벨링: /label)")
     lan_ip = _get_lan_ip() if HOST == "0.0.0.0" else None

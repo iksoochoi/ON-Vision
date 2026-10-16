@@ -609,10 +609,10 @@ document.addEventListener('keydown', (e) => {
 });
 
 let refreshTimer = null;
-new EventSource('/events').onmessage = (e) => {
+new EventSource('/events?topics=data').onmessage = (e) => {
   let data;
   try { data = JSON.parse(e.data); } catch (err) { return; }
-  if (data.key === 'samples_changed') {
+  if (data.key === 'samples_changed' || data.key === 'resync') {
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(() => loadList(currentId()), 400);
   }

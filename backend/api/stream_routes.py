@@ -1,32 +1,54 @@
 """Routes that hold the connection: server-sent events, preview snapshots and the MJPEG stream."""
 
 import queue
+import select
+import socket
 import time
 
 from ..core.events import subscribe, unsubscribe
 
+PING_SEC = 15   # a comment line now and then keeps proxies and the browser from closing an idle stream
+
 
 class StreamRoutes:
-    def _stream_events(self):
+    def _client_gone(self):
+        """Has the browser closed the connection? (Readable and nothing to read = the end of the stream.)"""
+        try:
+            readable, _, _ = select.select([self.connection], [], [], 0)
+            return bool(readable) and self.connection.recv(1, socket.MSG_PEEK) == b""
+        except (OSError, ValueError):
+            return True
+
+    def _stream_events(self, topics=None):
+        """Server-sent events. topics: the groups the page wants (/events?topics=live,qr; see core/events.py)."""
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
-        q = subscribe()
+        sub = subscribe(topics=topics)
         try:
-            self.wfile.write(b": connected\n\n")
+            self.wfile.write(b"retry: 3000\n: connected\n\n")
             self.wfile.flush()
+            idle = 0.0
             while True:
                 try:
-                    payload = q.get(timeout=15)
+                    payload = sub.q.get(timeout=1.0)
                     self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
+                    idle = 0.0
                 except queue.Empty:
+                    if self._client_gone():   # a page that was closed stops being served (and counted) at once
+                        break
+                    idle += 1.0
+                    if idle < PING_SEC:
+                        continue
+                    idle = 0.0
                     self.wfile.write(b": ping\n\n")
                 self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             pass
         finally:
-            unsubscribe(q)
+            unsubscribe(sub)
 
     def _send_snapshot(self, slot, query):
         """Latest preview frame as a single JPEG (the page polls these for the side cameras:

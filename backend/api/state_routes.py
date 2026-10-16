@@ -2,43 +2,18 @@
 
 from ..camera.registry import registry
 from ..capture import disk_guard
-from ..core import config as C
-from ..core.config import CAM_PARAMS, TARGET_CLASSES, UI
+from ..core.config import CAM_PARAMS
 from ..core.events import broadcast
 from ..core.rotation import unrotate_point
 from ..core.state import state, state_lock
-from ..detect.background import get_background
-from ..qr.hub import hub as qr_hub
-from ..storage.store import store
+from .state_payload import build_state
 
 
 class StateRoutes:
     def _state_payload(self, light=False):
-        with state_lock:
-            payload = {
-                "auto_enabled": state["auto_enabled"],
-                "auto_count": state["auto_count"],
-                "detector": dict(state["detector"]),
-            }
-        payload["cams"] = [slot.describe() for slot in registry.slots()]  # reference camera first
-        payload["trigger_camera"] = registry.reference_role   # "reference camera" in the UI
-        payload["cam_spec"] = CAM_PARAMS
-        payload["choices"] = {"preview": C.PREVIEW_CHOICES, "capture": C.CAPTURE_CHOICES}
-        payload["target_classes"] = TARGET_CLASSES
-        payload["shots"] = {"count": C.SHOTS, "spread": C.SHOT_SPREAD, "mode": C.SHOT_MODE}
-        payload["ui"] = UI
-        payload["counts"] = None if light else store.counts()
-        backgrounds = {}
-        for slot in registry.slots():
-            bg = get_background(slot.role)
-            backgrounds[slot.role] = {"exists": bg.exists, "updated": bg.updated}
-        payload["backgrounds"] = backgrounds
-        payload["background"] = backgrounds[registry.reference_role]   # the reference camera's
-        payload["qr"] = {"enabled": C.QR_ENABLED, "latest": qr_hub.snapshot(1)["latest"]}
-        with state_lock:
-            stopped = state["disk_stop"]
-        payload["disk"] = {**disk_guard.status(), "stopped": stopped}
-        return payload
+        """The whole state (see state_payload.py). `light` is kept for old callers: the counts come from the index
+        in memory now, so there is nothing to leave out."""
+        return build_state()
 
     def _set_auto(self, data):
         enabled = bool(data.get("enabled"))

@@ -30,7 +30,7 @@ class SampleRoutes:
             self.send_response(200)
             self.send_header("Content-Type", "image/jpeg")
             self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "public, max-age=3600")
+            self.send_header("Cache-Control", "public, max-age=86400")   # a picture never changes under its id
             self.end_headers()
             self.wfile.write(data)
         else:
