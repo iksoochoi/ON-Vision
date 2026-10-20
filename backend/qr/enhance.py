@@ -30,7 +30,7 @@ except Exception:   # not installed: everything else still works
 _warned = set()
 MARGIN = 0.3            # the cut around a located code: this part of its side on every side
 WIENER_BLUR_PX = (6, 9, 4, 12)   # blur lengths along x tried for a located code, in pixels of the saved picture
-BLIND_BLUR_PX = (6, 9, 12, 4)   # blur lengths tried on a whole search area (each one covers +-1 px around it)
+BLIND_BLUR_PX = (7, 8, 5, 9)   # blur lengths tried on a whole search area (each must be about right: 6 did not read a 7 px blur)
 WIENER_K = 0.02         # noise term of the Wiener filter: higher = gentler
 
 
