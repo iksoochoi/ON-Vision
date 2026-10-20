@@ -17,6 +17,7 @@ from ..detect.trigger import CenterTrigger, Shot
 from ..storage import capture_log
 from ..storage.store import make_bbox, store
 from . import disk_guard, sharpness
+from .presence import presence
 
 def describe_frame(frame):
     """Sensor size and the exposure/ISO the camera's auto-exposure picked (API varies by version)."""
@@ -121,19 +122,32 @@ def build_set(source, ts=None, sample=None, burst=None, exact=False):
             missing[slot.role] = f"stale frame ({offset * 1000:+.0f} ms)"
             continue
         views[slot.role] = frame
-        ae = describe_frame(frame)
-        view_meta[slot.role] = {
-            "offset_ms": round(offset * 1000, 1),
-            "camera": slot.snapshot_params(),
-            "ae": {"exposure_us": ae.pop("exposure_us", None), "iso": ae.pop("iso", None)},
-            **ae,
-        }
-        crop = getattr(frame, "crop", None)
-        if crop is not None:   # zoomed view: the saved picture is this part of the whole view
-            view_meta[slot.role]["zoom_crop"] = [round(v, 4) for v in crop]
+        view_meta[slot.role] = view_entry(slot, frame, offset)
         if pick:
             view_meta[slot.role]["sharpness"] = pick["sharpness"]
             view_meta[slot.role]["pick"] = {"picked": pick["picked"], "candidates": pick["candidates"]}
+    return assemble_set(source, views, view_meta, missing, sample, burst)
+
+
+def view_entry(slot, frame, offset):
+    """What the set's JSON says about one camera's picture: the offset to the shot moment (s), the camera settings, the
+    exposure the auto-exposure chose, the zoomed part."""
+    ae = describe_frame(frame)
+    entry = {
+        "offset_ms": round(offset * 1000, 1),
+        "camera": slot.snapshot_params(),
+        "ae": {"exposure_us": ae.pop("exposure_us", None), "iso": ae.pop("iso", None)},
+        **ae,
+    }
+    crop = getattr(frame, "crop", None)
+    if crop is not None:   # zoomed view: the saved picture is this part of the whole view
+        entry["zoom_crop"] = [round(v, 4) for v in crop]
+    return entry
+
+
+def assemble_set(source, views, view_meta, missing, sample=None, burst=None):
+    """(views, meta) for SampleStore.enqueue_burst from the chosen frames, or None when the reference camera has none."""
+    trigger = registry.trigger
     if trigger.role not in views:
         kind = f" ({burst['kind']} shot)" if burst else ""
         print(f"Capture skipped{kind}: no usable frame from the reference camera ({missing.get(trigger.role)})")
@@ -198,6 +212,7 @@ def capture_set(source, ts=None, sample=None, burst=None):
 
 
 ADJACENT_WAIT_SEC = 1.0   # longest wait for the frames after the center frame (ON_SHOT_MODE=adjacent)
+PICK_WAIT_SEC = 1.0       # the same for ON_PICK_MODE=best
 
 
 def _det_at(sample, ts):
@@ -219,18 +234,22 @@ class TriggerSession:
         self.trigger = trigger or CenterTrigger(
             axis=C.TRIGGER_AXIS, center_tol=C.CENTER_TOL, away_hyst=C.AWAY_HYST,
             lost_sec=C.LOST_SEC, min_obs=C.MIN_OBS, edge_margin=C.EDGE_MARGIN,
-            match_gate=C.MATCH_GATE, hold_sec=C.HOLD_SEC, shots=1 if C.ADJACENT else C.SHOTS,
+            match_gate=C.MATCH_GATE, hold_sec=C.HOLD_SEC, shots=1 if (C.ADJACENT or C.PICK_BEST) else C.SHOTS,
             spread=C.SHOT_SPREAD, log=print,
         )
         self._was_auto = True
         self._pending = []   # (sample, monotonic time it fired), ON_SHOT_MODE=adjacent
+        self._pending_best = []   # the same for ON_PICK_MODE=best: waits for the frames after the center
 
     def reset(self):
         self.trigger.reset()
         self._pending = []
+        self._pending_best = []
 
     def on_detections(self, ts, dets, auto_enabled, paused=False):
         """Returns the ids of the sets saved because of this detection message."""
+        if any(d.target for d in dets):
+            presence.mark_shoe()   # the belt is not empty: the cameras do not learn their empty-belt picture now
         if auto_enabled != self._was_auto:
             self.reset()
             self._was_auto = auto_enabled
@@ -241,13 +260,34 @@ class TriggerSession:
             return []
         ids = []
         for sample in self.trigger.update(ts, [d for d in dets if d.target]):
-            if C.ADJACENT:
+            if C.PICK_BEST:
+                self._pending_best.append((sample, time.monotonic()))
+            elif C.ADJACENT:
                 self._pending.append((sample, time.monotonic()))
             else:
                 ids.extend(self._save(sample, sample.shots))
+        if self._pending_best:
+            self._flush_best()
         if self._pending:
             ids.extend(self._flush_pending())
         return ids
+
+    def _flush_best(self):
+        """Hand the passes to the picker once the frames up to BEST_WINDOW_SEC after the center have arrived (or after
+        PICK_WAIT_SEC: a stalled camera must not hold the pass up). The picker works on its own thread: choosing
+        among the frames and reading QR codes takes a second or two, the camera loop must not wait for that."""
+        ref = registry.trigger
+        waiting = []
+        for sample, fired in self._pending_best:
+            latest = ref.latest()
+            ready = (latest is None or latest[0] >= sample.ts + C.BEST_WINDOW_SEC
+                     or time.monotonic() - fired >= PICK_WAIT_SEC)
+            if ready:
+                from .picker import picker
+                picker.submit(sample)
+            else:
+                waiting.append((sample, fired))
+        self._pending_best = waiting
 
     def _flush_pending(self):
         """Save the passes whose center frame already has ON_ADJACENT_MAX_STEP frames after it

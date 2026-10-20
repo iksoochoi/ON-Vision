@@ -149,6 +149,27 @@ RING_SEC = _env("ON_RING_SEC", 2.5, float)          # how long each camera keeps
 # About one frame period (0.12 s at 9 fps). 0 = off: always the nearest frame.
 PICK_WINDOW_SEC = max(0.0, _env("ON_PICK_WINDOW_SEC", 0.12, float))
 MAX_SKEW_SEC = _env("ON_MAX_SKEW_SEC", 0.5, float)  # a view further from the trigger moment is dropped
+
+# ---- one picture per camera: the best frame of a time window (backend/capture/picker.py) -----------------------
+# best    = a shoe pass is saved as ONE picture per camera: every camera picks its own best frame within +-
+#           ON_BEST_WINDOW_SEC of the center moment: the shoe must be clearly in it (big enough, not cut off) and it
+#           has the highest sharpness. The cameras that look for the QR code (ON_QR_CAMERAS) prefer a frame in which the
+#           code can be read. ON_SHOTS and ON_SHOT_MODE are not used then.
+# classic = before / center / after shots as before (ON_SHOTS, ON_SHOT_MODE)
+PICK_MODE = _env("ON_PICK_MODE", "best").strip().lower()
+if PICK_MODE not in ("best", "classic"):
+    print(f"[config] invalid ON_PICK_MODE={PICK_MODE!r} - using 'best'")
+    PICK_MODE = "best"
+PICK_BEST = PICK_MODE == "best"
+BEST_WINDOW_SEC = max(0.1, _env("ON_BEST_WINDOW_SEC", 0.5, float))   # the frames this close to the center are candidates
+PICK_MIN_AREA = max(0.0, min(1.0, _env("ON_PICK_MIN_AREA", 0.05, float)))      # the shoe covers at least this part of the picture
+PICK_EDGE_MARGIN = max(0.0, min(0.2, _env("ON_PICK_EDGE_MARGIN", 0.01, float)))  # touching the border within this = cut off
+PICK_REQUIRE_SHOE = _env("ON_PICK_REQUIRE_SHOE", 0, int) != 0   # 1 = no clear shoe in any frame: the camera is left out
+PICK_QR_TRIES = max(1, _env("ON_PICK_QR_TRIES", 3, int))        # QR cameras: so many of the sharpest frames are read to find one with a readable code
+PICK_QR_BUDGET_SEC = max(0.1, _env("ON_PICK_QR_BUDGET_SEC", 1.2, float))   # ... at most this long per camera
+if PICK_BEST and RING_SEC < 2 * BEST_WINDOW_SEC + 1.0:
+    print(f"[config] ON_RING_SEC={RING_SEC:g} is short for ON_BEST_WINDOW_SEC={BEST_WINDOW_SEC:g}: the frames of the window "
+          f"may be gone when the picture is chosen. Use ON_RING_SEC >= {2 * BEST_WINDOW_SEC + 1.0:g}")
 # Saved image size. Empty = sensor full resolution (single camera) or half of it (several cameras,
 # to stay inside the USB bandwidth). Example: 4056x3040
 CAPTURE_SIZE = _parse_size(_env("ON_CAPTURE_SIZE", ""))
@@ -195,7 +216,7 @@ SHOT_MODE = _env("ON_SHOT_MODE", "adjacent")
 if SHOT_MODE not in ("adjacent", "spread"):
     print(f"[config] invalid ON_SHOT_MODE={SHOT_MODE!r} - using 'adjacent'")
     SHOT_MODE = "adjacent"
-ADJACENT = SHOTS >= 3 and SHOT_MODE == "adjacent"
+ADJACENT = SHOTS >= 3 and SHOT_MODE == "adjacent"   # (classic mode only)
 ADJACENT_SHARP_RATIO = max(0.0, _env("ON_ADJACENT_SHARP_RATIO", 0.8, float))
 ADJACENT_MAX_STEP = max(1, _env("ON_ADJACENT_MAX_STEP", 3, int))
 

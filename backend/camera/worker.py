@@ -22,6 +22,7 @@ import cv2
 import depthai as dai
 
 from ..capture.session import TriggerSession, capture_set
+from ..capture.presence import presence
 from ..capture.sharpness import luma_small
 from ..core import config as C
 from ..core.events import broadcast
@@ -84,10 +85,12 @@ def _camera_loop(slot, pipeline, q, stop):
         crop = slot.view_crop()   # zoom of the view (None = whole view); never on the reference camera
         frame = q["full"].tryGet()
         # small luma copies: for the sharpest-frame pick and, on the reference camera, the adjacent shots
-        need_gray = C.PICK_WINDOW_SEC > 0 or (slot.is_trigger and C.ADJACENT)
+        need_gray = C.PICK_BEST or C.PICK_WINDOW_SEC > 0 or (slot.is_trigger and C.ADJACENT)
         while frame is not None:
             gray = luma_small(frame, rotation) if need_gray else None
             slot.push_frame(msg_ts(frame), wrap_frame(frame, rotation, crop), gray)
+            if C.PICK_BEST and not slot.is_trigger:   # the empty belt, to tell later whether a shoe is in the picture
+                presence.observe(role, gray, rotation)
             slot.count("full")
             frame = q["full"].tryGet()
 

@@ -51,6 +51,12 @@ class QrHub:
         top = max(count, key=lambda text: (count[text], last[text][0]))
         return {"role": last[top][1], "text": top, "epoch": last[top][0]}
 
+    def read_frames(self, role, since_ts, until_ts):
+        """Frame times (the camera's frame ring time) of the live reads of this camera in [since_ts, until_ts]: those
+        frames are known to hold a code that can be read, without reading them again."""
+        with self._lock:
+            return [r[3] for r in self._reads if r[1] == role and r[3] is not None and since_ts <= r[3] <= until_ts]
+
     def live_code_at(self, ts, half, band):
         """The code of the shoe that is in the middle of the picture at frame time `ts`: the live reads from
         frames within `half` seconds of it, each weighted by how close to the middle of the picture the code was
