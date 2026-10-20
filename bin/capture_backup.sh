@@ -6,6 +6,8 @@
 #   ./bin/capture_backup.sh --date 2026-10-15   that day's sets (a day that is over starts at once)
 #   ./bin/capture_backup.sh --all               every day that has sets (up to today), one zip per day, oldest first
 #   ./bin/capture_backup.sh --dry-run           only say what would be done, change nothing
+#   ./bin/capture_backup.sh --delete --date 2026-10-15   NO backup: only delete that day's data (asks first, --yes skips it)
+#   ./bin/capture_backup.sh --delete --all --now         NO backup: delete everything up to today (asks first)
 #   options: --at HH:MM (start time, default 23:59)  --out DIR (zip folder, default ON_BACKUP_DIR = backups/)
 #            --keep (make the zip but keep the files)
 # Details, the readme and what is deleted: docs/capture-backup.md. The output is also appended to logs/backup.log.

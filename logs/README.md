@@ -10,6 +10,8 @@
 | 앱이 왜 죽었는지, 파이썬 오류, depthai 오류 | `app.log` (네이티브 충돌은 `fault.log`) |
 | 앱이 시작은 했는지, 포트 충돌, 실행 스크립트 문제 | `run.log` |
 | 서비스(launchd)가 받은 원본 출력 | `labeler.log`, `ui.log` |
+| 밤에 서비스를 멈추고 시작한 기록 | `quiet.log` |
+| 백업 / 삭제 스크립트가 한 일 | `backup.log` |
 
 ## 파일별 내용
 
@@ -58,6 +60,10 @@
 
 ### `fault.log`: 네이티브 충돌 스택
 파이썬 밖(depthai 등 C 코드)에서 앱이 치명적으로 죽었을 때(segfault)의 스택만 남깁니다. 평소에는 비어 있거나 없습니다. 이 파일이 생겼다면 `app.log`의 마지막 줄들과 함께 보세요.
+
+### `quiet.log`, `backup.log`: 밤 정지와 백업 기록
+- `quiet.log`: `install_launchd.sh quiet-install`을 쓸 때, 조용한 시간(기본 23:00~06:00)에 앱을 멈추고 시작한 기록(시각 포함).
+- `backup.log`: `bin/capture_backup.sh`의 출력(백업한 날짜, 세트와 이미지 수, 용량, zip 이름과 검증, 삭제한 파일 수). `--delete`로 지운 양도 여기에 남습니다.
 
 ### `labeler.log`, `ui.log`: 서비스(launchd) 원본 출력
 `bin/install_launchd.sh`로 설치한 서비스가 받은 **원본 출력**입니다. `labeler.log`는 앱 서비스(시각이 없음, 크기 제한 없음), `ui.log`는 로그인 때 브라우저를 여는 서비스입니다. 시각이 붙은 `app.log`가 있으므로 보통은 볼 필요가 없고, 앱이 `app.log`를 만들기도 전에 죽었을 때 확인합니다.

@@ -5,6 +5,8 @@
     ./bin/capture_backup.sh --now               today's sets, started now
     ./bin/capture_backup.sh --all               every day that has sets (up to today), one zip per day, oldest first
     ./bin/capture_backup.sh --dry-run           only say what would be done
+    ./bin/capture_backup.sh --delete --date 2026-10-15   NO backup: delete that day's data (asks first; --yes skips it)
+    ./bin/capture_backup.sh --delete --all --now         NO backup: delete everything up to today (asks first)
 
 What it does, in this order (it stops at the first problem and then deletes nothing):
   1. waits for 23:59 of the day (--at HH:MM changes the time, --now does not wait)
@@ -355,6 +357,67 @@ def wait_until(target):
         time.sleep(min(left, 30))
 
 
+def delete_files(items):
+    """Delete [(path, arcname)]: the set files (.sets/) first, so that a set is never listed with its pictures gone.
+    Returns (how many were deleted, ["name: error", ...] for those that could not be)."""
+    deleted, failed = 0, []
+    for path, arc in sorted(items, key=lambda it: not it[1].startswith(".sets/")):
+        try:
+            Path(path).unlink()
+            deleted += 1
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            failed.append(f"{arc}: {e}")
+    return deleted, failed
+
+
+def preview(days, C):
+    """What a deletion would take, per day, from one look at the set files: {day: (sets, images, bytes)}."""
+    metas, _ = load_sets(C)
+    passes = {}
+    for meta, _mtime in metas:
+        key = (meta.get("burst") or {}).get("id") or meta["id"]
+        p = passes.setdefault(key, {"time": meta.get("timestamp") or "", "images": 0, "bytes": 0})
+        p["time"] = min(p["time"], meta.get("timestamp") or "")
+        for path, kind, role, size in files_of(meta, C):
+            p["bytes"] += size
+            p["images"] += 1 if kind == "image" else 0
+    out = {d: [0, 0, 0] for d in days}
+    for p in passes.values():
+        try:
+            d = date.fromisoformat(p["time"][:10])
+        except ValueError:
+            continue
+        if d in out:
+            out[d][0] += 1
+            out[d][1] += p["images"]
+            out[d][2] += p["bytes"]
+    return {d: tuple(v) for d, v in out.items()}
+
+
+def confirm_delete(days, C, args):
+    """Deleting without a backup cannot be undone: show what goes and ask. --yes skips the question (a run in the
+    background has nobody to ask). Returns True to go on."""
+    seen = preview(days, C)
+    sets = sum(v[0] for v in seen.values())
+    images = sum(v[1] for v in seen.values())
+    size = sum(v[2] for v in seen.values())
+    for d in days:
+        log(f"  {d.isoformat()}: {seen[d][0]} sets, {seen[d][1]} images, {fmt_bytes(seen[d][2])}")
+    log(f"WILL DELETE (with NO backup): {sets} sets, {images} images, {fmt_bytes(size)} of {len(days)} day(s)")
+    if args.yes or args.dry_run:
+        return True
+    if not sys.stdin.isatty():
+        log("STOP: this run cannot ask (no terminal). Add --yes to delete without asking. Nothing was changed.")
+        return False
+    answer = input("Type 'delete' to delete them for good: ")
+    if answer.strip().lower() != "delete":
+        log("cancelled. Nothing was changed.")
+        return False
+    return True
+
+
 def days_with_sets(C, upto):
     """The days (date objects, oldest first) that have sets, up to and including `upto`: a pass counts for the day of
     its first cut."""
@@ -397,6 +460,14 @@ def backup_day(day, args, C, out_dir):
                                                   "left_out": ", ".join(note)})
     log(f"{len(passes)} sets, {stats['cuts']} cuts, {stats['images']} images, {len(items)} files, {fmt_bytes(total)}; "
         f"QR read in {stats['qr']['ok']} of {stats['passes']} sets")
+    if args.delete:   # no zip, no readme: the data is only deleted
+        if args.dry_run:
+            log(f"dry run: would DELETE {len(items)} files ({fmt_bytes(total)}) of {len(passes)} sets, with no backup")
+            return 0
+        deleted, failed = delete_files(items)
+        log(f"deleted {deleted} files ({len(passes)} sets, {fmt_bytes(total)}) of {day.isoformat()} from {C.CAPTURES_DIR}, no backup"
+            + (f"; {len(failed)} could not be deleted (first: {failed[0]})" if failed else ""))
+        return 1 if failed else 0
     if args.dry_run:
         log(f"dry run: would write {C.CAPTURES_DIR / 'readme.md'}, make {target} and "
             + ("keep" if args.keep else "delete") + f" {len(items)} files")
@@ -436,17 +507,8 @@ def backup_day(day, args, C, out_dir):
     if args.keep:
         log("--keep: the files stay in the captures folder")
         return 0
-    deleted, failed = 0, []
-    for path, arc in items:
-        if arc == "readme.md":
-            continue   # the statistics stay in the captures folder (the next backup replaces them)
-        try:
-            Path(path).unlink()
-            deleted += 1
-        except FileNotFoundError:
-            pass
-        except OSError as e:
-            failed.append(f"{arc}: {e}")
+    # the statistics (readme.md) stay in the captures folder: the next backup replaces them
+    deleted, failed = delete_files([(p, a) for p, a in items if a != "readme.md"])
     log(f"deleted {deleted} files from {C.CAPTURES_DIR}" + (f"; {len(failed)} could not be deleted (first: {failed[0]})" if failed else ""))
     log("done. The app notices the removed sets within two minutes.")
     return 1 if failed else 0
@@ -463,15 +525,26 @@ def main(argv=None):
     ap.add_argument("--out", help="folder for the zip (default ON_BACKUP_DIR, backups/ in the project)")
     ap.add_argument("--keep", action="store_true", help="make the zip but do not delete the files from captures")
     ap.add_argument("--dry-run", action="store_true", help="say what would be done, change nothing")
+    ap.add_argument("--delete", action="store_true",
+                    help="NO backup: only delete the day's data (with --all: every day up to the day). Asks first")
+    ap.add_argument("--yes", action="store_true", help="with --delete: do not ask (needed when there is no terminal)")
     args = ap.parse_args(argv)
+    if args.delete and args.keep:
+        ap.error("--delete and --keep contradict each other")
 
     from ..core import config as C
     day = date.fromisoformat(args.date) if args.date else date.today()
     hh, mm = (int(x) for x in args.at.split(":"))
     start = datetime.combine(day, datetime.min.time()).replace(hour=hh, minute=mm)
     out_dir = Path(args.out).expanduser() if args.out else C.BACKUP_DIR
-    log(f"back up the sets of {'every day up to ' if args.all else ''}{day.isoformat()} from {C.CAPTURES_DIR} to {out_dir}"
-        + (" (dry run)" if args.dry_run else " (the files are deleted after the zip is checked)" if not args.keep else " (files are kept)"))
+    if args.delete:
+        log(f"DELETE the sets of {'every day up to ' if args.all else ''}{day.isoformat()} from {C.CAPTURES_DIR}, with NO backup"
+            + (" (dry run)" if args.dry_run else ""))
+        if not confirm_delete(days_with_sets(C, day) if args.all else [day], C, args):
+            return 4
+    else:
+        log(f"back up the sets of {'every day up to ' if args.all else ''}{day.isoformat()} from {C.CAPTURES_DIR} to {out_dir}"
+            + (" (dry run)" if args.dry_run else " (the files are deleted after the zip is checked)" if not args.keep else " (files are kept)"))
     if not args.now and not args.dry_run and datetime.now() < start:
         wait_until(start)
     elif not args.now and datetime.now() >= start and day == date.today():

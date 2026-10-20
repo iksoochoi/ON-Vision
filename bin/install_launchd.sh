@@ -7,6 +7,12 @@
 #   ./bin/install_launchd.sh status
 #   ./bin/install_launchd.sh logs [app|collect|capture|run|service]   follow a log (default: app)
 #   ./bin/install_launchd.sh ui          open the screen now
+#   ./bin/install_launchd.sh stop | start         stop / start the app by hand (the screen agent is not touched)
+#   ./bin/install_launchd.sh quiet-install        stop the app every night and start it again in the morning
+#   ./bin/install_launchd.sh quiet-uninstall      back to running all day
+# The quiet hours (nothing is shot at night, so the load is saved) are ON_QUIET_START .. ON_QUIET_END in .env,
+# default 23:00 .. 06:00. The app is stopped cleanly (it is not a crash) and started again at the end; after
+# changing the times run quiet-install again. Details: docs/operations.md.
 # Whether the screen opens, and in which browser, is set in .env (ON_OPEN_BROWSER, ON_BROWSER_APP,
 # ON_BROWSER_KIOSK): no reinstall needed after changing them.
 set -euo pipefail
@@ -20,13 +26,18 @@ LOG_DIR="$ROOT/logs"
 LOG_FILE="$LOG_DIR/labeler.log"
 UI_LOG_FILE="$LOG_DIR/ui.log"
 DOMAIN="gui/$(id -u)"
+QUIET_LABEL="$LABEL.quiet"
+QUIET_PLIST="$HOME/Library/LaunchAgents/$QUIET_LABEL.plist"
+QUIET_LOG_FILE="$LOG_DIR/quiet.log"
+LAUNCHCTL="${LAUNCHCTL_BIN:-launchctl}"   # replaced in tests
 
-# write_plist KIND LABEL PLIST LOG_FILE: KIND "app" = bin/run.sh, kept alive; "ui" = `_open_ui`, once per login
+# write_plist KIND LABEL PLIST LOG_FILE: KIND "app" = bin/run.sh, kept alive; "ui" = `_open_ui`, once per login;
+# "quiet" = `_quiet` at the two times of QUIET_TIMES ("23:00,06:00")
 write_plist() {
     local kind="$1"
     [ -x .venv/bin/python ] || { echo "Run ./bin/setup_mac.sh first" >&2; exit 1; }
     mkdir -p "$LOG_DIR" "$(dirname "$3")"
-    ROOT="$ROOT" KIND="$kind" LABEL="$2" PLIST="$3" LOG_FILE="$4" .venv/bin/python - <<'EOF'
+    ROOT="$ROOT" KIND="$kind" LABEL="$2" PLIST="$3" LOG_FILE="$4" QUIET_TIMES="${QUIET_TIMES:-}" .venv/bin/python - <<'EOF'
 import os
 import plistlib
 
@@ -46,6 +57,11 @@ if os.environ["KIND"] == "app":
     plist["KeepAlive"] = True
     plist["ThrottleInterval"] = 10
     env["ON_NO_KILL"] = "1"
+elif os.environ["KIND"] == "quiet":
+    # at the start and at the end of the quiet hours (and at login): stop or start the app as the time says
+    plist["ProgramArguments"] = ["/bin/bash", os.path.join(root, "bin", "install_launchd.sh"), "_quiet"]
+    plist["StartCalendarInterval"] = [
+        {"Hour": int(t.split(":")[0]), "Minute": int(t.split(":")[1])} for t in os.environ["QUIET_TIMES"].split(",")]
 else:
     # no KeepAlive: the screen is opened once per login, not again after every app restart
     plist["ProgramArguments"] = ["/bin/bash", os.path.join(root, "bin", "install_launchd.sh"), "_open_ui", "--if-enabled"]
@@ -57,7 +73,7 @@ EOF
 
 # print_status LABEL: state / pid / runs / last exit code of one agent
 print_status() {
-    if launchctl print "$DOMAIN/$1" >/tmp/on_labeling_status.$$ 2>&1; then
+    if "$LAUNCHCTL" print "$DOMAIN/$1" >/tmp/on_labeling_status.$$ 2>&1; then
         grep -E '^\s*(state|pid|runs|last exit code) =' /tmp/on_labeling_status.$$ | head -4 || true
     else
         echo "  Not installed (or not loaded)"
@@ -81,6 +97,57 @@ app_log_dir() {
     d=$(env_value ON_LOG_DIR logs)
     case "$d" in "~"*) d="$HOME${d#"~"}" ;; esac
     case "$d" in /*) echo "$d" ;; *) echo "$ROOT/$d" ;; esac
+}
+
+# ---- quiet hours -----------------------------------------------------------------------------------------------
+
+# valid_time TEXT DEFAULT: TEXT if it is HH:MM, else DEFAULT
+valid_time() {
+    case "$1" in
+        [0-1][0-9]:[0-5][0-9]|2[0-3]:[0-5][0-9]) echo "$1" ;;
+        *) echo "$2" ;;
+    esac
+}
+
+quiet_start() { valid_time "$(env_value ON_QUIET_START 23:00)" 23:00; }
+quiet_end()   { valid_time "$(env_value ON_QUIET_END 06:00)" 06:00; }
+
+to_minutes() { local h="${1%%:*}" m="${1##*:}"; echo $((10#$h * 60 + 10#$m)); }
+
+# in_quiet_window HH:MM: is that time inside [start, end)? The window may cross midnight (23:00 .. 06:00).
+in_quiet_window() {
+    local s e n
+    s=$(to_minutes "$(quiet_start)"); e=$(to_minutes "$(quiet_end)"); n=$(to_minutes "$1")
+    if [ "$s" -le "$e" ]; then
+        [ "$n" -ge "$s" ] && [ "$n" -lt "$e" ]
+    else
+        [ "$n" -ge "$s" ] || [ "$n" -lt "$e" ]
+    fi
+}
+
+app_loaded() { "$LAUNCHCTL" print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
+
+# quiet_apply: what the quiet agent does at the start / end of the quiet hours and at login: stop the app inside the
+# window, start it outside (QUIET_NOW=HH:MM replaces the clock, for tests)
+quiet_apply() {
+    local now stamp
+    now="${QUIET_NOW:-$(date +%H:%M)}"
+    stamp="$(date '+%Y-%m-%d %H:%M:%S')"
+    if in_quiet_window "$now"; then
+        if app_loaded; then
+            echo "$stamp quiet hours ($(quiet_start)-$(quiet_end)): stopping the app"
+            "$LAUNCHCTL" bootout "$DOMAIN/$LABEL" || echo "$stamp could not stop the app"
+        else
+            echo "$stamp quiet hours ($(quiet_start)-$(quiet_end)): the app is stopped already"
+        fi
+    elif app_loaded; then
+        echo "$stamp the app is running"
+    elif [ -f "$PLIST" ]; then
+        echo "$stamp quiet hours are over: starting the app"
+        "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" || echo "$stamp could not start the app"
+    else
+        echo "$stamp the app is not installed (./bin/install_launchd.sh install)"
+    fi
 }
 
 app_installed() {
@@ -161,29 +228,79 @@ case "${1:-}" in
         esac
         write_plist app "$LABEL" "$PLIST" "$LOG_FILE"
         write_plist ui "$UI_LABEL" "$UI_PLIST" "$UI_LOG_FILE"
-        for l in "$LABEL" "$UI_LABEL"; do launchctl bootout "$DOMAIN/$l" 2>/dev/null || true; done
-        launchctl bootstrap "$DOMAIN" "$PLIST"
-        launchctl bootstrap "$DOMAIN" "$UI_PLIST"
+        for l in "$LABEL" "$UI_LABEL"; do "$LAUNCHCTL" bootout "$DOMAIN/$l" 2>/dev/null || true; done
+        "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST"
+        "$LAUNCHCTL" bootstrap "$DOMAIN" "$UI_PLIST"
         echo "Installed and started: $LABEL (app) and $UI_LABEL (opens the screen at login)"
         echo "Logs:   ./bin/install_launchd.sh logs [app|collect|capture|run|service]   (files in $(app_log_dir))"
         echo "        app = everything the app prints, collect = problems of the data collection, capture = every capture,"
         echo "        run = the start script, service = the raw output of the service ($LOG_FILE; screen: $UI_LOG_FILE)"
         echo "Status: ./bin/install_launchd.sh status"
+        echo "Nobody works at night? ./bin/install_launchd.sh quiet-install stops the app $(quiet_start)-$(quiet_end) (saves the load)"
         ;;
     uninstall)
-        for l in "$LABEL" "$UI_LABEL"; do launchctl bootout "$DOMAIN/$l" 2>/dev/null || true; done
-        rm -f "$PLIST" "$UI_PLIST"
-        echo "Removed: $LABEL, $UI_LABEL"
+        for l in "$LABEL" "$UI_LABEL" "$QUIET_LABEL"; do "$LAUNCHCTL" bootout "$DOMAIN/$l" 2>/dev/null || true; done
+        rm -f "$PLIST" "$UI_PLIST" "$QUIET_PLIST"
+        echo "Removed: $LABEL, $UI_LABEL, $QUIET_LABEL"
         ;;
     restart)
-        launchctl kickstart -k "$DOMAIN/$LABEL"
+        if ! app_loaded; then
+            echo "The app is not running (stopped by hand or for the quiet hours): ./bin/install_launchd.sh start" >&2
+            exit 1
+        fi
+        "$LAUNCHCTL" kickstart -k "$DOMAIN/$LABEL"
         echo "Restarted: $LABEL"
+        ;;
+    stop)
+        "$LAUNCHCTL" bootout "$DOMAIN/$LABEL" 2>/dev/null && echo "Stopped: $LABEL" || echo "The app was not running"
+        [ -f "$QUIET_PLIST" ] && echo "The quiet-hours agent starts it again at $(quiet_end) (./bin/install_launchd.sh quiet-uninstall to stop that)"
+        true
+        ;;
+    start)
+        if app_loaded; then
+            echo "The app is running already"
+        elif [ -f "$PLIST" ]; then
+            "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST"
+            echo "Started: $LABEL"
+        else
+            echo "Not installed: ./bin/install_launchd.sh install" >&2
+            exit 1
+        fi
+        ;;
+    quiet-install)
+        mkdir -p "$LOG_DIR"
+        QUIET_TIMES="$(quiet_start),$(quiet_end)"
+        export QUIET_TIMES
+        write_plist quiet "$QUIET_LABEL" "$QUIET_PLIST" "$QUIET_LOG_FILE"
+        "$LAUNCHCTL" bootout "$DOMAIN/$QUIET_LABEL" 2>/dev/null || true
+        "$LAUNCHCTL" bootstrap "$DOMAIN" "$QUIET_PLIST"
+        echo "Installed: $QUIET_LABEL - the app is stopped from $(quiet_start) to $(quiet_end) and started again after that"
+        echo "Now: $(if in_quiet_window "${QUIET_NOW:-$(date +%H:%M)}"; then echo "inside the quiet hours: the app is being stopped"; else echo "outside the quiet hours: the app keeps running"; fi)"
+        echo "Log:  $QUIET_LOG_FILE   Back to running all day: ./bin/install_launchd.sh quiet-uninstall"
+        echo "A sleeping Mac runs the 06:00 job only when it wakes: see docs/operations.md (wake schedule)."
+        ;;
+    quiet-uninstall)
+        "$LAUNCHCTL" bootout "$DOMAIN/$QUIET_LABEL" 2>/dev/null || true
+        rm -f "$QUIET_PLIST"
+        echo "Removed: $QUIET_LABEL"
+        if ! app_loaded && [ -f "$PLIST" ]; then   # do not leave the app stopped
+            "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" && echo "Started the app again: $LABEL"
+        fi
+        ;;
+    _quiet)   # internal: what the quiet agent runs
+        quiet_apply
         ;;
     status)
         echo "$LABEL (app):"
         print_status "$LABEL"
         echo "$UI_LABEL (screen at login):"
         print_status "$UI_LABEL"
+        if [ -f "$QUIET_PLIST" ]; then
+            echo "$QUIET_LABEL (quiet hours $(quiet_start)-$(quiet_end)): now $(if in_quiet_window "${QUIET_NOW:-$(date +%H:%M)}"; then echo inside, the app should be stopped; else echo outside; fi)"
+            print_status "$QUIET_LABEL"
+        else
+            echo "Quiet hours: not installed (./bin/install_launchd.sh quiet-install)"
+        fi
         if tail -n 20 "$LOG_FILE" 2>/dev/null | grep -q "Operation not permitted"; then
             echo
             echo "The app cannot start: macOS blocks services from ~/Desktop, ~/Documents and ~/Downloads."
@@ -201,7 +318,8 @@ case "${1:-}" in
             capture) f="$dir/capture.log" ;;
             run)     f="$dir/run.log" ;;
             service) f="$LOG_FILE" ;;
-            *) echo "usage: $0 logs [app|collect|capture|run|service]" >&2; exit 2 ;;
+            quiet)   f="$QUIET_LOG_FILE" ;;
+            *) echo "usage: $0 logs [app|collect|capture|run|service|quiet]" >&2; exit 2 ;;
         esac
         touch "$f"
         exec tail -n 100 -f "$f"
@@ -213,7 +331,7 @@ case "${1:-}" in
         open_ui "${2:-}"
         ;;
     *)
-        echo "usage: $0 install | uninstall | restart | status | logs [app|collect|capture|run|service] | ui" >&2
+        echo "usage: $0 install | uninstall | restart | stop | start | status | logs [app|collect|capture|run|service] | ui | quiet-install | quiet-uninstall" >&2
         exit 2
         ;;
 esac
