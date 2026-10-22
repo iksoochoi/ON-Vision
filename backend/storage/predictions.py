@@ -3,24 +3,39 @@
 
     {"id", "timestamp", "shoe_id", "model", "device", "imgsz", "conf", "predicted_at", "ms",
      "defect": true | false | null (null = could not be predicted), "count", "classes": {name: n},
-     "views": {role: {"ms", "detections": [{"class", "conf", "box": [x0, y0, x1, y1] as fractions of the picture}]}},
+     "views": {role: {"ms", "sharpness", "shoe": {"area", "box"} (the shoe region of the picture, when the set has one),
+                      "detections": [{"class", "conf", "box": [x0, y0, x1, y1] as fractions of the picture}]}},
      "errors": {role: reason}, "error": reason (the whole set failed)}
+"defect" there is the RAW verdict of the model (any detection of a class that is not an ok class). The Predict page
+corrects it (see Analysis below) and shows the corrected verdict.
 
 The worker also keeps captures/.predict/.status.json (is it alive, how fast, how many waiting).
 The index keeps a short summary of every result in memory (like the shoe index), so a page never reads the disk per
-request; it looks at the folder at most every REFRESH_SEC."""
+request; it looks at the folder at most every REFRESH_SEC.
+
+Analysis (corrections, worked out from the stored results only, nothing is predicted again). A detection is left out of
+the verdict (it is "not counted") when
+  * its class is an ok class (the model has a class for a good print),
+  * it is RECURRING: the same camera has the same class at the same place (IoU >= PREDICT_RECUR_IOU) in at least
+    PREDICT_RECUR_MIN other sets. A defect of one shoe does not sit on the same pixels of most shoes: such a box is
+    the background or something the model reads into every shoe (a logo, the print), or
+  * it lies OFF the shoe: less than PREDICT_ON_SHOE_MIN of the box is inside the shoe region of that picture
+    ("unknown" = no usable region: the detection is kept).
+The corrected verdict of a set is "defect" when at least one detection is counted."""
 
 import json
 import os
 import threading
 import time
 
-from ..core.config import PREDICT_DIR, PREDICT_MODEL, PREDICT_OK_CLASSES, PREDICT_ON_SHOE_MIN, PREDICT_SHOE_MAX_AREA
+from ..core.config import (PREDICT_DIR, PREDICT_MODEL, PREDICT_OK_CLASSES, PREDICT_ON_SHOE_MIN, PREDICT_RECUR_IOU,
+                           PREDICT_RECUR_MIN, PREDICT_SHOE_MAX_AREA)
 from .paths import time_key
 
 REFRESH_SEC = 1.5
 STATUS_NAME = ".status.json"
 STATUS_FRESH_SEC = 20.0   # the worker counts as alive when its status is this young
+CHUNK = 512               # rows of the overlap matrix worked out at a time
 
 
 def result_path(sample_id):
@@ -85,32 +100,49 @@ def inside_fraction(box, region):
     return max(0.0, w) * max(0.0, h) / area if area > 0 else 0.0
 
 
+def shoe_region(result_view, set_view):
+    """(box, area) of the shoe in one picture: what the worker stored in the result, else what the set's JSON says
+    (views.<camera>.pick.shoe); (None, None) when there is none."""
+    shoe = (result_view or {}).get("shoe")
+    if not shoe and isinstance(set_view, dict):
+        shoe = (set_view.get("pick") or {}).get("shoe")
+    shoe = shoe or {}
+    return shoe.get("box"), shoe.get("area")
+
+
+def on_shoe(box, region, area):
+    """("on" | "off" | "unknown", part of the box inside the region or None). No region, or one that covers more of
+    the picture than PREDICT_SHOE_MAX_AREA (a wrong region), = unknown."""
+    if not region or (area is not None and area > PREDICT_SHOE_MAX_AREA):
+        return "unknown", None
+    inside = inside_fraction(box, region)
+    return ("on" if inside >= PREDICT_ON_SHOE_MIN else "off"), round(inside, 2)
+
+
 def context(result, meta):
-    """What helps to judge the detections of a set, worked out from what is stored (no new prediction):
-    per picture its sharpness (from the set's JSON), how many detections it has, and per detection whether it lies on
-    the shoe ("on" / "off" / "unknown": no shoe region stored for that picture, or it covers more than
-    PREDICT_SHOE_MAX_AREA of it) with the part of the box that is inside; per class the validation mAP50 of the model."""
+    """What helps to judge the detections of a set, worked out from what is stored: per picture its sharpness and
+    the number of detections, per detection where it lies (on / off the shoe), whether it recurs in other sets and
+    whether it counts for the verdict (see the top of this file), per class the validation mAP50 of the model."""
     metrics = class_metrics()
     set_views = (meta or {}).get("views") or {}
-    out = {"views": {}, "classes": {}}
+    flags = index.flags(result["id"])
+    out = {"views": {}, "classes": {}, "verdict": index.verdict(result["id"]), "recur_min": PREDICT_RECUR_MIN,
+           "on_shoe_min": PREDICT_ON_SHOE_MIN}
     for role, v in (result.get("views") or {}).items():
-        info = set_views.get(role) if isinstance(set_views.get(role), dict) else {}
-        shoe = (info.get("pick") or {}).get("shoe") or {}
-        box, area = shoe.get("box"), shoe.get("area")
-        trusted = bool(box) and (area is None or area <= PREDICT_SHOE_MAX_AREA)
+        sv = set_views.get(role) if isinstance(set_views.get(role), dict) else {}
+        region, area = shoe_region(v, sv)
         dets = []
-        for d in v.get("detections", []):
-            if not trusted:
-                dets.append({"on_shoe": "unknown", "inside": None})
-                continue
-            inside = inside_fraction(d["box"], box)
-            dets.append({"on_shoe": "on" if inside >= PREDICT_ON_SHOE_MIN else "off", "inside": round(inside, 2)})
-        out["views"][role] = {"sharpness": info.get("sharpness"), "count": len(dets), "detections": dets,
-                              "shoe": {"area": area, "trusted": trusted} if box else None}
-        for d in v.get("detections", []):
+        for i, d in enumerate(v.get("detections", [])):
+            f = flags.get((role, i)) or {}
+            place, inside = (f["on"], f["inside"]) if f else on_shoe(d["box"], region, area)
+            dets.append({"on_shoe": place, "inside": inside, "recurring": f.get("recurring"),
+                         "counted": f.get("counted"), "reasons": f.get("reasons", [])})
             m = metrics.get(d["class"])
-            out["classes"][d["class"]] = ({"map50": m["map50"], "instances": m["instances"]} if m else None)
-    out["on_shoe_min"] = PREDICT_ON_SHOE_MIN
+            out["classes"][d["class"]] = {"map50": m["map50"], "instances": m["instances"]} if m else None
+        sharp = v.get("sharpness") if v.get("sharpness") is not None else sv.get("sharpness")
+        out["views"][role] = {"sharpness": sharp, "count": len(dets), "detections": dets,
+                              "shoe": {"area": area, "trusted": bool(region) and (area is None or area <= PREDICT_SHOE_MAX_AREA)}
+                              if region else None}
     return out
 
 
@@ -119,28 +151,70 @@ def is_defect(detections, ok_classes):
     return any(d["class"] not in ok_classes for d in detections)
 
 
-def summarise(result, ok_classes=()):
-    """The short form the lists use."""
+def _recurrence(dets, thr):
+    """For every detection of `dets` (dicts with "role", "cls", "box", "set"): in how many detections of OTHER sets with
+    the same camera and class does its box overlap (IoU >= thr)? Returns a list in the same order."""
+    import numpy as np
+    out = [0] * len(dets)
+    groups = {}
+    for n, d in enumerate(dets):
+        groups.setdefault((d["role"], d["cls"]), []).append(n)
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        box = np.array([dets[n]["box"] for n in members], dtype=np.float32)
+        sid = np.array([dets[n]["set"] for n in members])
+        area = np.maximum(box[:, 2] - box[:, 0], 0) * np.maximum(box[:, 3] - box[:, 1], 0)
+        for s in range(0, len(members), CHUNK):
+            b = box[s:s + CHUNK]
+            w = np.minimum(b[:, None, 2], box[None, :, 2]) - np.maximum(b[:, None, 0], box[None, :, 0])
+            h = np.minimum(b[:, None, 3], box[None, :, 3]) - np.maximum(b[:, None, 1], box[None, :, 1])
+            inter = np.maximum(w, 0) * np.maximum(h, 0)
+            union = area[s:s + CHUNK, None] + area[None, :] - inter
+            hit = (inter > 0) & (inter >= thr * np.maximum(union, 1e-9)) & (sid[s:s + CHUNK, None] != sid[None, :])
+            for k, count in enumerate(hit.sum(axis=1)):
+                out[members[s + k]] = int(count)
+    return out
+
+
+def summarise(result, dets, ok_classes=()):
+    """The short form the lists use (raw verdict); `dets` as made by PredictIndex._detections."""
     classes = result.get("classes") or {}
-    best = max((d["conf"] for v in (result.get("views") or {}).values() for d in v.get("detections", [])
-                if d["class"] not in ok_classes), default=None)
-    views = result.get("views") or {}
+    best = max((d["conf"] for d in dets if d["cls"] not in ok_classes), default=None)
     return {"id": result["id"], "tk": time_key(result["id"]), "time": result.get("timestamp") or "",
             "shoe_id": result.get("shoe_id"), "defect": result.get("defect"), "count": result.get("count", 0),
             "classes": classes, "best": best, "ms": result.get("ms"), "error": result.get("error"),
-            "defect_views": sorted(r for r, v in views.items()
-                                   if any(d["class"] not in ok_classes for d in v.get("detections", [])))}
+            "defect_views": sorted({d["role"] for d in dets if d["cls"] not in ok_classes})}
 
 
 class PredictIndex:
     def __init__(self, ok_classes=()):
         self._ok = tuple(ok_classes)
         self._lock = threading.RLock()
-        self._sets = {}      # id -> summary
+        self._sets = {}      # id -> summary (raw) with "dets"
         self._mtime = {}     # id -> mtime_ns of its file
         self._checked = 0.0
         self.version = 0
         self._status = None
+        self._analysis = (None, {})   # (version it was made for, id -> corrected summary and per-detection flags)
+
+    def _detections(self, result):
+        """The detections of a result as a flat list with where they lie (the set's JSON is read only for results
+        written before the worker stored the shoe region)."""
+        meta, dets = None, []
+        for role, v in (result.get("views") or {}).items():
+            sv = {}
+            if "shoe" not in v and v.get("detections"):
+                if meta is None:
+                    from .store import store   # late: the store imports this module
+                    meta = store.get(result["id"]) or {}
+                sv = (meta.get("views") or {}).get(role)
+            region, area = shoe_region(v, sv)
+            for i, d in enumerate(v.get("detections", [])):
+                place, inside = on_shoe(d["box"], region, area)
+                dets.append({"role": role, "i": i, "cls": d["class"], "conf": d["conf"], "box": d["box"],
+                             "on": place, "inside": inside, "set": result["id"]})
+        return dets
 
     def refresh(self, force=False):
         """Look at the folder (at most every REFRESH_SEC). Returns True when something changed (results or status)."""
@@ -168,7 +242,10 @@ class PredictIndex:
                 result = read_result(sid)
                 if result is None or "id" not in result:
                     continue
-                self._sets[sid], self._mtime[sid], changed = summarise(result, self._ok), mtime, True
+                dets = self._detections(result)
+                summary = summarise(result, dets, self._ok)
+                summary["dets"] = dets
+                self._sets[sid], self._mtime[sid], changed = summary, mtime, True
             for sid in [s for s in self._sets if s not in seen]:
                 del self._sets[sid]
                 del self._mtime[sid]
@@ -185,13 +262,73 @@ class PredictIndex:
         self.refresh()
         return dict(self._status or {"alive": False})
 
-    def page(self, flt="all", cls=None, date=None, limit=60, offset=0):
+    # ---- the corrections --------------------------------------------------------------------------------------------
+
+    def _analyse(self):
+        """The corrected verdict of every set and the flags of every detection, made once per version of the index."""
+        with self._lock:
+            if self._analysis[0] == self.version:
+                return self._analysis[1]
+            flat = [d for s in self._sets.values() for d in s["dets"]]
+            recur = _recurrence(flat, PREDICT_RECUR_IOU)
+            for d, n in zip(flat, recur):
+                d["recurring"] = n
+            result = {}
+            for sid, s in self._sets.items():
+                flags, counted = {}, []
+                for d in s["dets"]:
+                    reasons = []
+                    if d["cls"] in self._ok:
+                        reasons.append("fine")
+                    if d["recurring"] >= PREDICT_RECUR_MIN:
+                        reasons.append("recurring")
+                    if d["on"] == "off":
+                        reasons.append("off shoe")
+                    flags[(d["role"], d["i"])] = {"on": d["on"], "inside": d["inside"], "recurring": d["recurring"],
+                                                  "counted": not reasons, "reasons": reasons}
+                    if not reasons:
+                        counted.append(d)
+                classes = {}
+                for d in counted:
+                    classes[d["cls"]] = classes.get(d["cls"], 0) + 1
+                undecided = s["error"] or s["defect"] is None
+                result[sid] = {"flags": flags, "defect": None if undecided else bool(counted), "count": len(counted),
+                               "classes": classes, "best": max((d["conf"] for d in counted), default=None),
+                               "defect_views": sorted({d["role"] for d in counted})}
+            self._analysis = (self.version, result)
+            return result
+
+    def flags(self, sample_id):
+        """{(camera, index of the detection): {"on", "inside", "recurring", "counted", "reasons"}} of one set."""
+        self.refresh()
+        return (self._analyse().get(sample_id) or {}).get("flags", {})
+
+    def verdict(self, sample_id):
+        """{"raw": ..., "corrected": ...} (defect true / false / None) of one set."""
+        self.refresh()
+        a = self._analyse().get(sample_id)
+        s = self._sets.get(sample_id)
+        if a is None or s is None:
+            return None
+        return {"raw": s["defect"], "corrected": a["defect"], "raw_count": s["count"], "count": a["count"]}
+
+    def page(self, flt="all", cls=None, date=None, limit=60, offset=0, corrected=True):
         """(rows newest first, totals) for the list: flt all | defect | ok | error; cls: only sets with this class;
-        date: "2026-10-20". Totals count the whole index, `matching` the filter."""
+        date: "2026-10-20"; corrected: the verdict and classes after the corrections (else the raw ones of the model).
+        Totals count the whole index, `matching` the filter."""
         self.refresh()
         with self._lock:
-            rows = sorted(self._sets.values(), key=lambda r: r["tk"], reverse=True)
-            totals = {"all": len(rows), "defect": 0, "ok": 0, "error": 0}
+            analysis = self._analyse()
+            rows = []
+            for s in sorted(self._sets.values(), key=lambda r: r["tk"], reverse=True):
+                a = analysis[s["id"]]
+                row = {k: v for k, v in s.items() if k != "dets"}
+                row.update(raw_defect=s["defect"], raw_count=s["count"])
+                if corrected:
+                    row.update(defect=a["defect"], count=a["count"], classes=a["classes"], best=a["best"],
+                               defect_views=a["defect_views"])
+                rows.append(row)
+            totals = {"all": len(rows), "defect": 0, "ok": 0, "error": 0, "raw_defect": 0}
             classes, dates = {}, {}
             for r in rows:
                 if r["error"] or r["defect"] is None:
@@ -200,6 +337,7 @@ class PredictIndex:
                     totals["defect"] += 1
                 else:
                     totals["ok"] += 1
+                totals["raw_defect"] += 1 if r["raw_defect"] and not r["error"] else 0
                 for name, n in r["classes"].items():
                     classes[name] = classes.get(name, 0) + n
                 dates[r["time"][:10]] = dates.get(r["time"][:10], 0) + 1
@@ -220,6 +358,8 @@ class PredictIndex:
             totals["classes"] = dict(sorted(classes.items(), key=lambda kv: -kv[1]))
             totals["ok_classes"] = list(self._ok)
             totals["dates"] = dict(sorted(dates.items(), reverse=True))
+            totals["corrected"] = corrected
+            totals["recur_min"] = PREDICT_RECUR_MIN
             return picked[offset:offset + limit if limit else None], totals
 
     def remove(self, sample_ids):

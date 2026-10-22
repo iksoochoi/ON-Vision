@@ -1,5 +1,6 @@
 """Routes of the Predict page: the defect detection results the worker (backend/predict/worker.py) wrote."""
 
+from ..core.config import PREDICT_CORRECT
 from ..storage import predictions
 from ..storage.paths import ID_RE
 from ..storage.store import store
@@ -10,7 +11,7 @@ MAX_LIMIT = 200
 
 class PredictRoutes:
     def _get_predict(self, rest, query):
-        """/api/predict?filter=all|defect|ok|error&cls=&date=&limit=&offset=  -> {"rows", "totals", "status"}
+        """/api/predict?filter=all|defect|ok|error&cls=&date=&limit=&offset=&corrected=1|0 -> {"rows", "totals", "status"}
         /api/predict/<id>                                                      -> {"result", "views", "primary"}"""
         if not rest:
             flt = query.get("filter", ["all"])[0]
@@ -19,8 +20,9 @@ class PredictRoutes:
                 offset = max(0, int(query.get("offset", ["0"])[0]))
             except ValueError:
                 limit, offset = 60, 0
+            corrected = query.get("corrected", ["1" if PREDICT_CORRECT else "0"])[0] != "0"
             rows, totals = predictions.index.page(flt if flt in FILTERS else "all", query.get("cls", [""])[0] or None,
-                                                  query.get("date", [""])[0] or None, limit, offset)
+                                                  query.get("date", [""])[0] or None, limit, offset, corrected)
             self._send_json({"rows": rows, "totals": totals, "status": predictions.index.status()})
             return
         if not ID_RE.match(rest):

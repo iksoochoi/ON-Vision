@@ -8,6 +8,7 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': 
 const ORDER = ['top', 'back', 'left', 'front', 'right'];
 
 let flt = 'all';
+let corrected = null;   // null until the server says what it starts with
 let rows = [];
 let totals = null;
 let okClasses = [];
@@ -27,6 +28,7 @@ async function getJson(url) {
 
 function query(offset) {
   const q = new URLSearchParams({ filter: flt, limit: String(PAGE), offset: String(offset) });
+  if (corrected !== null) q.set('corrected', corrected ? '1' : '0');
   if ($('dateSel').value) q.set('date', $('dateSel').value);
   if ($('clsSel').value) q.set('cls', $('clsSel').value);
   return '/api/predict?' + q;
@@ -35,6 +37,12 @@ function query(offset) {
 function badge(r) {
   if (r.error || r.defect == null) return '<span class="badge error">ERROR</span>';
   return r.defect ? '<span class="badge defect">DEFECT</span>' : '<span class="badge ok">OK</span>';
+}
+
+// the raw verdict of the model next to a corrected one that differs
+function rawNote(r) {
+  if (!corrected || r.error || r.raw_defect == null || !!r.raw_defect === !!r.defect) return '';
+  return `<span class="rawnote" title="The model alone said DEFECT (${r.raw_count} detections); after the corrections nothing counts">raw: ${r.raw_defect ? 'DEFECT' : 'OK'}</span>`;
 }
 
 function renderWorker(status) {
@@ -81,7 +89,7 @@ function renderRows() {
         <img loading="lazy" alt="" src="${imageUrl(r.id, r.defect_views[0] || 'top', 'thumb')}" onerror="this.style.visibility='hidden'">
         <div><div class="t">${esc(r.time.replace('T', ' ').slice(0, 19))}</div>
           <div class="s">${esc(r.shoe_id || 'no QR value')}${r.count ? ' · ' + esc(Object.keys(r.classes).join(', ')) : ''}</div></div>
-        ${badge(r)}
+        <div class="rb">${badge(r)}${rawNote(r)}</div>
       </div>`).join('');
   }
   $('moreBtn').hidden = !totals || rows.length >= totals.matching;
@@ -94,6 +102,9 @@ async function load(append) {
     const data = await getJson(query(append ? rows.length : 0));
     totals = data.totals;
     okClasses = totals.ok_classes || [];
+    if (corrected === null) corrected = !!totals.corrected;
+    $('corr').checked = corrected;
+    $('corrInfo').textContent = corrected ? `${totals.raw_defect} → ${totals.defect} defect sets` : '';
     rows = append ? rows.concat(data.rows) : data.rows;
     renderWorker(data.status);
     renderFilters();
@@ -107,16 +118,26 @@ async function load(append) {
   }
 }
 
-// ctx: the context of the same detections (on the shoe or not), see storage/predictions.py
+// ctx: the context of the same detections (where they lie, whether they count), see storage/predictions.py.
+// With the corrections on, a detection that does not count is drawn dashed and dim with the reason.
 function boxes(dets, ctx) {
   return dets.map((d, i) => {
     const [x0, y0, x1, y1] = d.box;
+    const c = (ctx && ctx[i]) || {};
+    const left = corrected && c.counted === false;
     const fine = okClasses.includes(d.class);
-    const off = ctx && ctx[i] && ctx[i].on_shoe === 'off';
-    return `<div class="det${fine ? ' fine' : ''}${off ? ' off' : ''}" style="left:${x0 * 100}%;top:${y0 * 100}%;width:${(x1 - x0) * 100}%;height:${(y1 - y0) * 100}%">` +
-      `<i>${esc(d.class)} ${d.conf.toFixed(2)}${off ? ' · off shoe' : ''}</i></div>`;
+    const why = left && c.reasons && c.reasons.length ? ' · ' + c.reasons.join(', ') : '';
+    return `<div class="det${fine ? ' fine' : ''}${left ? ' off' : ''}" style="left:${x0 * 100}%;top:${y0 * 100}%;width:${(x1 - x0) * 100}%;height:${(y1 - y0) * 100}%">` +
+      `<i>${esc(d.class)} ${d.conf.toFixed(2)}${esc(why)}</i></div>`;
   }).join('');
 }
+
+const REASON_TEXT = { fine: 'fine class', recurring: 'recurring', 'off shoe': 'off shoe' };
+const statusChip = (c) => {
+  if (c.counted == null) return '-';
+  if (c.counted) return '<span class="chip ng">counts</span>';
+  return `<span class="chip warn" title="Left out of the verdict">${c.reasons.map((r) => REASON_TEXT[r] || r).join(' + ')}</span>`;
+};
 
 const SHOE_TEXT = { on: 'on shoe', off: 'off shoe', unknown: 'unknown' };
 const mapChip = (m) => (m ? `<span class="chip ${m.map50 >= 0.5 ? 'ok' : (m.map50 < 0.2 ? 'warn' : '')}" title="Validation mAP50 of the model for this class (${m.instances} objects in the validation pictures)">${m.map50.toFixed(2)}</span>` : '-');
@@ -153,20 +174,29 @@ async function showSet(id) {
   const table = all.length
     ? '<div class="card"><h3>Detections</h3><table class="qr-table"><thead><tr><th>Camera</th><th>Class</th><th class="num">Score</th>' +
       '<th title="Does the box lie on the shoe? (the shoe region found when the set was saved)">On shoe</th>' +
+      '<th title="Recurring = the same camera has this class at the same place in many other sets: not a defect of this shoe. Counts = it decides the verdict.">Verdict</th>' +
+      '<th class="num" title="In how many detections of other sets the same camera has this class at the same place">Recurs</th>' +
       '<th class="num" title="Validation mAP50 of the model for this class: how well it found this class in its own test pictures">Class mAP50</th>' +
       '<th class="num" title="Sharpness of the picture of this camera (higher = sharper; compare pictures of the same camera)">Sharp</th></tr></thead><tbody>' +
       all.sort((a, b) => b.conf - a.conf).map((d) => `<tr><td>${esc(d.role)}</td><td>${esc(d.class)}${okClasses.includes(d.class) ? ' <span class="chip ok">fine</span>' : ''}</td><td class="num">${d.conf.toFixed(2)}</td>` +
         `<td><span class="chip ${d.c.on_shoe === 'off' ? 'warn' : (d.c.on_shoe === 'on' ? 'ok' : '')}"${d.c.inside != null ? ` title="${Math.round(d.c.inside * 100)}% of the box is inside the shoe region"` : ''}>${SHOE_TEXT[d.c.on_shoe] || 'unknown'}</span></td>` +
+        `<td>${statusChip(d.c)}</td><td class="num">${d.c.recurring == null ? '-' : d.c.recurring}</td>` +
         `<td class="num">${mapChip((ctx.classes || {})[d.class])}</td><td class="num">${d.sharp == null ? '-' : Math.round(d.sharp)}</td></tr>`).join('') +
-      '</tbody></table><div class="hint">A box that is not on the shoe is drawn dashed. "unknown": no shoe region was stored for that picture (sets saved with ON_PICK_MODE=classic) or it covers most of the picture and is not trusted. Class mAP50 is a property of the model, not of this detection: a low value means the model finds that class badly even in its own tests.</div></div>'
+      '</tbody></table><div class="hint">With the corrections on, a box that does not count (recurring, off the shoe or a fine class) is drawn dashed and dim, and only the others decide DEFECT / OK; "raw" is what the model alone would say. A recurring box can also be a real defect that every shoe has: look at those once. "unknown": no shoe region was stored for that picture (sets saved with ON_PICK_MODE=classic) or it covers most of the picture and is not trusted. Class mAP50 is a property of the model, not of this detection: a low value means the model finds that class badly even in its own tests.</div></div>'
     : '<div class="hint">Nothing was detected in any picture.</div>';
   $('detail').dataset.id = id;
-  $('detail').innerHTML = `<div class="pred-head"><h2>${esc(res.shoe_id || 'no QR value')} ${badge(res)}</h2>
+  $('detail').innerHTML = `<div class="pred-head"><h2>${esc(res.shoe_id || 'no QR value')} ${badge(verdictRow(ctx, res))}</h2>
     <div class="meta">${esc((res.timestamp || '').replace('T', ' ').slice(0, 19))} · predicted ${esc((res.predicted_at || '').replace('T', ' '))} ·
       ${esc(res.model)} on ${esc(res.device)}, ${res.imgsz}px, score ≥ ${res.conf} · ${res.ms} ms ·
       <a class="linkbtn" style="padding:2px 10px" href="/browse?sample=${encodeURIComponent(id)}">Open in browse</a></div>
     ${res.error ? `<div class="card">Failed: ${esc(res.error)}</div>` : ''}</div>
     <div class="pred-grid">${cells}</div>${table}`;
+}
+
+// the verdict of a set as the page shows it: corrected or raw (from the context of the detail)
+function verdictRow(ctx, res) {
+  const v = ctx.verdict || {};
+  return { error: res.error, defect: corrected && 'corrected' in v ? v.corrected : res.defect };
 }
 
 function openLightbox(id, role) {
@@ -196,6 +226,7 @@ $('flt').onclick = (e) => {
   document.querySelectorAll('#flt button').forEach((x) => x.classList.toggle('active', x === b));
   load(false);
 };
+$('corr').onchange = () => { corrected = $('corr').checked; load(false); if (selected) showSet(selected); };
 $('dateSel').onchange = () => load(false);
 $('clsSel').onchange = () => load(false);
 $('moreBtn').onclick = () => load(true);

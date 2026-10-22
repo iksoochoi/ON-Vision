@@ -324,6 +324,12 @@ PREDICT_MAX_BACKLOG = max(1, _env("ON_PREDICT_MAX_BACKLOG", 100, int))   # more 
 PREDICT_ON_SHOE_MIN = max(0.0, min(1.0, _env("ON_PREDICT_ON_SHOE_MIN", 0.5, float)))
 # ... but a shoe region covering more of the picture than this is not trusted (then: unknown), e.g. a wrong region
 PREDICT_SHOE_MAX_AREA = max(0.1, min(1.0, _env("ON_PREDICT_SHOE_MAX_AREA", 0.8, float)))
+# Corrections of the verdict on the Predict page (storage/predictions.py): detections that RECUR (the same camera has the
+# same class at the same place, IoU >= ON_PREDICT_RECUR_IOU, in at least ON_PREDICT_RECUR_MIN other sets) or lie off the
+# shoe do not count for the verdict. ON_PREDICT_CORRECT=0: the page starts with the raw verdict of the model.
+PREDICT_CORRECT = _env("ON_PREDICT_CORRECT", 1, int) != 0
+PREDICT_RECUR_MIN = max(2, _env("ON_PREDICT_RECUR_MIN", 10, int))
+PREDICT_RECUR_IOU = max(0.1, min(0.95, _env("ON_PREDICT_RECUR_IOU", 0.5, float)))
 PREDICT_OK_CLASSES = [c.strip() for c in _env("ON_PREDICT_OK_CLASSES", "Print4_poor_print_good").split(",") if c.strip()]
 
 # ---- dataset export (YOLO format) ------------------------------------------

@@ -91,7 +91,9 @@ def predict_set(meta, model, device, engine, cv2):
             continue
         h, w = image.shape[:2]
         res = engine.predict(model, device, image, C.PREDICT_IMGSZ, C.PREDICT_CONF)
-        views[role] = {"ms": res["ms"], "detections": [
+        info = (meta.get("views") or {}).get(role) if isinstance((meta.get("views") or {}).get(role), dict) else {}
+        shoe = (info.get("pick") or {}).get("shoe")   # the shoe region of this picture (sets saved with ON_PICK_MODE=best)
+        views[role] = {"ms": res["ms"], "sharpness": info.get("sharpness"), "shoe": shoe, "detections": [
             {"class": d["class"], "conf": d["conf"],
              "box": [round(d["box"][0] / w, 4), round(d["box"][1] / h, 4), round(d["box"][2] / w, 4), round(d["box"][3] / h, 4)]}
             for d in res["detections"]]}
