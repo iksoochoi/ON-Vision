@@ -58,6 +58,7 @@ THUMBS_DIR = CAPTURES_DIR / ".thumbs"
 THUMBS_DIR.mkdir(parents=True, exist_ok=True)
 SETS_DIR = CAPTURES_DIR / ".sets"   # one JSON per capture set (what the app lists and labels)
 SETS_DIR.mkdir(parents=True, exist_ok=True)
+PREDICT_DIR = CAPTURES_DIR / ".predict"   # one JSON per set with the defect detection result (backend/predict/worker.py)
 
 # ON_HOST: 0.0.0.0 = reachable from other devices on the network, 127.0.0.1 = this machine only.
 HOST = _env("ON_HOST", "0.0.0.0")
@@ -308,6 +309,17 @@ DISK_STOP_PERCENT = max(0.0, min(100.0, _env("ON_DISK_STOP_PERCENT", 90.0, float
 AUTO_CAPTURE = _env("ON_AUTO_CAPTURE", 1, int) != 0
 JPEG_QUALITY = _env("ON_JPEG_QUALITY", 95, int)
 THUMB_WIDTH = _env("ON_THUMB_WIDTH", 480, int)
+
+# Defect detection (backend/predict, a separate process: the camera app only shows its results). Read by the worker:
+PREDICT_MODEL = _path("ON_PREDICT_MODEL", "backend/models/defect_detection/best.pt")
+PREDICT_DEVICE = _env("ON_PREDICT_DEVICE", "auto").strip().lower()   # auto (Apple GPU = mps, else cuda, else cpu) | cpu | mps | 0
+PREDICT_IMGSZ = max(32, _env("ON_PREDICT_IMGSZ", 1280, int))         # the model was trained at 1280
+PREDICT_CONF = max(0.01, min(0.99, _env("ON_PREDICT_CONF", 0.25, float)))   # minimum score of a detection
+PREDICT_THREADS = max(1, _env("ON_PREDICT_THREADS", 2, int))         # torch CPU threads (the GPU does the work on a Mac)
+PREDICT_MAX_AGE_HOURS = max(0.0, _env("ON_PREDICT_MAX_AGE_HOURS", 24.0, float))   # older sets are not predicted (0 = no limit)
+PREDICT_MAX_BACKLOG = max(1, _env("ON_PREDICT_MAX_BACKLOG", 100, int))   # more waiting than this: the OLDEST are left out
+# Detections of these classes mean "fine", not "defect" (the model has a class for a good print)
+PREDICT_OK_CLASSES = [c.strip() for c in _env("ON_PREDICT_OK_CLASSES", "Print4_poor_print_good").split(",") if c.strip()]
 
 # ---- dataset export (YOLO format) ------------------------------------------
 EXPORTS_DIR = _path("ON_EXPORTS_DIR", "exports")

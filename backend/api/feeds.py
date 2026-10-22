@@ -5,7 +5,9 @@ One thread, and it works only while a page listens (events.has_subscribers):
   live_data   a moment after a capture is saved / changed / deleted, the Live page: the newest sets and the counts
   qr_scan     every QR_SCAN_PUSH_SEC, the QR page: what the live scan of each camera sees
   qr_stats    a moment after the sets changed (at most every STATS_MIN_SEC), the QR page: the daily statistics
-Nothing here reads the disk: the sets come from the index in memory."""
+  predict_changed  the Predict page: a defect detection result arrived or the worker's state changed (the page asks again)
+Nothing here reads the disk, except the folder of the defect detection results (every PREDICT_CHECK_SEC, only while a
+Predict page listens): the sets come from the index in memory."""
 
 import threading
 import time
@@ -13,6 +15,7 @@ import time
 from ..core import events
 from ..core.config import UI
 from ..qr.hub import hub as qr_hub
+from ..storage import predictions
 from ..storage.store import store
 from .state_payload import build_changing_state
 
@@ -21,6 +24,7 @@ QR_SCAN_PUSH_SEC = 2.0
 DATA_DEBOUNCE_SEC = 0.3
 STATS_MIN_SEC = 2.0
 TICK_SEC = 0.25
+PREDICT_CHECK_SEC = 2.0
 RECENT_MIN = 6
 
 
@@ -31,7 +35,7 @@ class Feeds(threading.Thread):
         self.clock = clock
         self._dirty_since = None     # when the sets last changed and the pages have not been told yet
         self._stats_due = False      # the QR page still has to be sent new statistics
-        self._next = {"state": 0.0, "scan": 0.0, "stats": 0.0}
+        self._next = {"state": 0.0, "scan": 0.0, "stats": 0.0, "predict": 0.0}
         events.add_listener(self._on_event)
 
     def _on_event(self, payload):
@@ -70,6 +74,11 @@ class Feeds(threading.Thread):
             events.broadcast({"key": "qr_scan", "scanning": snap["scanning"], "enabled": snap["enabled"],
                               "now": time.time()})
             sent.append("qr_scan")
+        if now >= self._next["predict"] and events.has_subscribers("predict"):
+            self._next["predict"] = now + PREDICT_CHECK_SEC
+            if predictions.index.refresh(force=True):
+                events.broadcast({"key": "predict_changed"})
+                sent.append("predict_changed")
         return sent
 
     def run(self):

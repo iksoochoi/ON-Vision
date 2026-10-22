@@ -11,6 +11,7 @@
 | 앱이 시작은 했는지, 포트 충돌, 실행 스크립트 문제 | `run.log` |
 | 서비스(launchd)가 받은 원본 출력 | `labeler.log`, `ui.log` |
 | 밤에 서비스를 멈추고 시작한 기록 | `quiet.log` |
+| 불탐지 워커가 한 일(세트별 결과, 오류) | `predict.log` |
 | 백업 / 삭제 스크립트가 한 일 | `backup.log` |
 
 ## 파일별 내용
@@ -64,6 +65,9 @@
 ### `quiet.log`, `backup.log`: 밤 정지와 백업 기록
 - `quiet.log`: `install_launchd.sh quiet-install`을 쓸 때, 조용한 시간(기본 23:00~06:00)에 앱을 멈추고 시작한 기록(시각 포함).
 - `backup.log`: `bin/capture_backup.sh`의 출력(백업한 날짜, 세트와 이미지 수, 용량, zip 이름과 검증, 삭제한 파일 수). `--delete`로 지운 양도 여기에 남습니다.
+
+### `predict.log`: 불량 탐지 워커
+`install_launchd.sh predict-install`로 설치한 워커(`backend/predict/worker.py`)의 출력입니다. 시작할 때 모델·장치, 세트마다 한 줄(걸린 시간, 검출 개수, DEFECT/ok/ERROR). 시각이 붙어 있고 크기 제한은 없습니다(`logs predict`로 봅니다). 자세히는 [docs/predict.md](../docs/predict.md).
 
 ### `labeler.log`, `ui.log`: 서비스(launchd) 원본 출력
 `bin/install_launchd.sh`로 설치한 서비스가 받은 **원본 출력**입니다. `labeler.log`는 앱 서비스(시각이 없음, 크기 제한 없음), `ui.log`는 로그인 때 브라우저를 여는 서비스입니다. 시각이 붙은 `app.log`가 있으므로 보통은 볼 필요가 없고, 앱이 `app.log`를 만들기도 전에 죽었을 때 확인합니다.

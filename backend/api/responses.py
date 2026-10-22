@@ -15,15 +15,18 @@ STATIC_FILES = {
     "/label":            ("page/label.html",   "text/html; charset=utf-8"),
     "/qr":               ("page/qr.html",      "text/html; charset=utf-8"),
     "/browse":           ("page/browse.html",  "text/html; charset=utf-8"),
+    "/predict":          ("page/predict.html", "text/html; charset=utf-8"),
     "/css/common.css":   ("css/common.css",    "text/css; charset=utf-8"),
     "/css/live.css":     ("css/live.css",      "text/css; charset=utf-8"),
     "/css/browse.css":   ("css/browse.css",    "text/css; charset=utf-8"),
     "/css/label.css":    ("css/label.css",     "text/css; charset=utf-8"),
     "/css/qr.css":       ("css/qr.css",        "text/css; charset=utf-8"),
+    "/css/predict.css":  ("css/predict.css",   "text/css; charset=utf-8"),
     "/js/live.js":       ("js/live.js",        "application/javascript; charset=utf-8"),
     "/js/label.js":      ("js/label.js",       "application/javascript; charset=utf-8"),
     "/js/qr.js":         ("js/qr.js",          "application/javascript; charset=utf-8"),
     "/js/browse.js":     ("js/browse.js",      "application/javascript; charset=utf-8"),
+    "/js/predict.js":    ("js/predict.js",     "application/javascript; charset=utf-8"),
     "/js/welcome.js":    ("js/welcome.js",     "application/javascript; charset=utf-8"),
 }
 

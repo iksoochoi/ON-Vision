@@ -86,7 +86,7 @@ def load_sets(C):
 
 def files_of(meta, C):
     """The files of one cut: [(path, kind, role, size)] for the pictures, thumbnails, per-camera JSON and set JSON that
-    exist. kind: image | thumb | view_json | set_json."""
+    exist. kind: image | thumb | view_json | set_json | predict_json."""
     from ..storage.paths import image_path, meta_path, primary_role, thumb_path, view_meta_path
     sid, primary = meta["id"], primary_role(meta)
     found = []
@@ -101,6 +101,11 @@ def files_of(meta, C):
                 pass
     path = meta_path(sid)
     found.append((path, "set_json", "-", path.stat().st_size if path.exists() else 0))
+    from ..storage.predictions import result_path   # the defect detection result of the set, when there is one
+    try:
+        found.append((result_path(sid), "predict_json", "-", result_path(sid).stat().st_size))
+    except OSError:
+        pass
     return found
 
 
@@ -156,7 +161,7 @@ def statistics(passes, roles):
             stats["labels"][status] = stats["labels"].get(status, 0) + 1
         for path, kind, role, size in p["files"]:
             stats["bytes"] += size
-            if kind == "set_json":
+            if kind in ("set_json", "predict_json"):
                 stats["json_bytes"] += size
                 continue
             v = stats["views"].setdefault(role, {"passes": 0, "cuts": 0, "images": 0, "image_bytes": 0, "thumb_bytes": 0,
@@ -294,6 +299,7 @@ def build_readme(day, stats, roles, extra):
           ".sets/<id>.json          세트(컷)마다 하나: 검출 정보, QR, 라벨",
           "<view>/<id>.jpg|json     카메라(top, back, left, front, right)별 사진과 그 카메라의 JSON",
           ".thumbs/<view>/<id>.jpg  썸네일",
+          ".predict/<id>.json      불량 탐지 결과 (워커가 돌았을 때만)",
           "```", "",
           f"파일 {extra['files']}개 (readme.md 포함). 압축 안의 경로는 captures 폴더 기준이라 압축을 풀면 그대로 captures 폴더에 합칠 수 있습니다.",
           ""]

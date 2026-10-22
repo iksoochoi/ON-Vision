@@ -96,4 +96,5 @@ ON_TARGET_CLASSES=shoe
 | [logs/README.md](logs/README.md) | 로그 파일마다 어떤 정보가 남는지 |
 | [capture-backup.md](docs/capture-backup.md) | 하루치 캡처를 통계와 함께 zip으로 백업하고 지우는 스크립트, readme.md 내용 |
 | [web-performance.md](docs/web-performance.md) | 세트가 많이 쌓여도 화면이 느려지지 않게 한 방법(메모리 색인, SSE), 측정 결과 |
+| [predict.md](docs/predict.md) | 불량 탐지: 별도 워커, Predict 메뉴, 설치, 설정, 수집에 영향 없는 구조 |
 | [logs-and-alerts.md](docs/logs-and-alerts.md) | 로그 파일(app/collect/run), 카메라 감시, 수집 문제 Google Chat 알림 설정 |

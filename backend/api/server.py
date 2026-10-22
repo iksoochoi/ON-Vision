@@ -17,13 +17,14 @@ from ..storage.paths import ID_RE
 from ..storage.store import store
 from . import feeds
 from .export_routes import ExportRoutes
+from .predict_routes import PredictRoutes
 from .responses import STATIC_FILES, ResponsesMixin
 from .sample_routes import SampleRoutes
 from .state_routes import StateRoutes
 from .stream_routes import StreamRoutes
 
 
-class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, StreamRoutes,
+class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, PredictRoutes, StreamRoutes,
                      BaseHTTPRequestHandler):
     def _route(self):
         parts = urlsplit(self.path)
@@ -93,6 +94,8 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, St
             self._send_json(qr_hub.snapshot())
         elif path == "/api/qr/daily":
             self._send_json(store.daily_qr())
+        elif path == "/api/predict" or path.startswith("/api/predict/"):
+            self._get_predict(path[len("/api/predict/"):], query)
         elif path.startswith("/exports/"):
             self._download_export(path[len("/exports/"):])
         elif path.startswith("/api/samples/"):

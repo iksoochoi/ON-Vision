@@ -8,6 +8,8 @@
 #   ./bin/install_launchd.sh logs [app|collect|capture|run|service]   follow a log (default: app)
 #   ./bin/install_launchd.sh ui          open the screen now
 #   ./bin/install_launchd.sh stop | start         stop / start the app by hand (the screen agent is not touched)
+#   ./bin/install_launchd.sh predict-install      also run the defect detection worker (backend/predict, docs/predict.md)
+#   ./bin/install_launchd.sh predict-uninstall    remove the worker (restart: predict-restart)
 #   ./bin/install_launchd.sh quiet-install        stop the app every night and start it again in the morning
 #   ./bin/install_launchd.sh quiet-uninstall      back to running all day
 # The quiet hours (nothing is shot at night, so the load is saved) are ON_QUIET_START .. ON_QUIET_END in .env,
@@ -29,10 +31,14 @@ DOMAIN="gui/$(id -u)"
 QUIET_LABEL="$LABEL.quiet"
 QUIET_PLIST="$HOME/Library/LaunchAgents/$QUIET_LABEL.plist"
 QUIET_LOG_FILE="$LOG_DIR/quiet.log"
+PREDICT_LABEL="$LABEL.predict"
+PREDICT_PLIST="$HOME/Library/LaunchAgents/$PREDICT_LABEL.plist"
+PREDICT_LOG_FILE="$LOG_DIR/predict.log"
 LAUNCHCTL="${LAUNCHCTL_BIN:-launchctl}"   # replaced in tests
 
 # write_plist KIND LABEL PLIST LOG_FILE: KIND "app" = bin/run.sh, kept alive; "ui" = `_open_ui`, once per login;
-# "quiet" = `_quiet` at the two times of QUIET_TIMES ("23:00,06:00")
+# "quiet" = `_quiet` at the two times of QUIET_TIMES ("23:00,06:00"); "predict" = the defect detection worker
+# (its own process at a low priority, kept alive: the camera app never waits for it)
 write_plist() {
     local kind="$1"
     [ -x .venv/bin/python ] || { echo "Run ./bin/setup_mac.sh first" >&2; exit 1; }
@@ -57,6 +63,14 @@ if os.environ["KIND"] == "app":
     plist["KeepAlive"] = True
     plist["ThrottleInterval"] = 10
     env["ON_NO_KILL"] = "1"
+elif os.environ["KIND"] == "predict":
+    plist["ProgramArguments"] = [os.path.join(root, ".venv", "bin", "python"), "-u", "-m", "backend.predict.worker"]
+    plist["KeepAlive"] = True
+    plist["ThrottleInterval"] = 30
+    plist["ProcessType"] = "Background"
+    plist["Nice"] = 10
+    plist["LowPriorityIO"] = True
+    env["PYTHONUNBUFFERED"] = "1"
 elif os.environ["KIND"] == "quiet":
     # at the start and at the end of the quiet hours (and at login): stop or start the app as the time says
     plist["ProgramArguments"] = ["/bin/bash", os.path.join(root, "bin", "install_launchd.sh"), "_quiet"]
@@ -239,9 +253,9 @@ case "${1:-}" in
         echo "Nobody works at night? ./bin/install_launchd.sh quiet-install stops the app $(quiet_start)-$(quiet_end) (saves the load)"
         ;;
     uninstall)
-        for l in "$LABEL" "$UI_LABEL" "$QUIET_LABEL"; do "$LAUNCHCTL" bootout "$DOMAIN/$l" 2>/dev/null || true; done
-        rm -f "$PLIST" "$UI_PLIST" "$QUIET_PLIST"
-        echo "Removed: $LABEL, $UI_LABEL, $QUIET_LABEL"
+        for l in "$LABEL" "$UI_LABEL" "$QUIET_LABEL" "$PREDICT_LABEL"; do "$LAUNCHCTL" bootout "$DOMAIN/$l" 2>/dev/null || true; done
+        rm -f "$PLIST" "$UI_PLIST" "$QUIET_PLIST" "$PREDICT_PLIST"
+        echo "Removed: $LABEL, $UI_LABEL, $QUIET_LABEL, $PREDICT_LABEL"
         ;;
     restart)
         if ! app_loaded; then
@@ -266,6 +280,35 @@ case "${1:-}" in
             echo "Not installed: ./bin/install_launchd.sh install" >&2
             exit 1
         fi
+        ;;
+    predict-install)
+        if ! .venv/bin/python -c "import ultralytics" 2>/dev/null; then
+            echo "The defect detection packages are not installed: .venv/bin/python -m pip install -r backend/predict/requirements.txt" >&2
+            exit 1
+        fi
+        model=$(env_value ON_PREDICT_MODEL backend/models/defect_detection/best.pt)
+        case "$model" in "~"*) model="$HOME${model#"~"}" ;; esac
+        case "$model" in /*) ;; *) model="$ROOT/$model" ;; esac
+        [ -f "$model" ] || { echo "Model file not found: $model (ON_PREDICT_MODEL)" >&2; exit 1; }
+        write_plist predict "$PREDICT_LABEL" "$PREDICT_PLIST" "$PREDICT_LOG_FILE"
+        "$LAUNCHCTL" bootout "$DOMAIN/$PREDICT_LABEL" 2>/dev/null || true
+        "$LAUNCHCTL" bootstrap "$DOMAIN" "$PREDICT_PLIST"
+        echo "Installed and started: $PREDICT_LABEL (defect detection worker, low priority, separate from the app)"
+        echo "Log:  $PREDICT_LOG_FILE   (./bin/install_launchd.sh logs predict)   Results: the Predict page of the screen"
+        echo "It keeps running at night (idle, it costs nothing). Remove it: ./bin/install_launchd.sh predict-uninstall"
+        ;;
+    predict-uninstall)
+        "$LAUNCHCTL" bootout "$DOMAIN/$PREDICT_LABEL" 2>/dev/null || true
+        rm -f "$PREDICT_PLIST"
+        echo "Removed: $PREDICT_LABEL (the results already made stay in captures/.predict/)"
+        ;;
+    predict-restart)
+        if ! "$LAUNCHCTL" print "$DOMAIN/$PREDICT_LABEL" >/dev/null 2>&1; then
+            echo "The worker is not running: ./bin/install_launchd.sh predict-install" >&2
+            exit 1
+        fi
+        "$LAUNCHCTL" kickstart -k "$DOMAIN/$PREDICT_LABEL"
+        echo "Restarted: $PREDICT_LABEL"
         ;;
     quiet-install)
         mkdir -p "$LOG_DIR"
@@ -295,6 +338,12 @@ case "${1:-}" in
         print_status "$LABEL"
         echo "$UI_LABEL (screen at login):"
         print_status "$UI_LABEL"
+        if [ -f "$PREDICT_PLIST" ]; then
+            echo "$PREDICT_LABEL (defect detection worker):"
+            print_status "$PREDICT_LABEL"
+        else
+            echo "Defect detection worker: not installed (./bin/install_launchd.sh predict-install)"
+        fi
         if [ -f "$QUIET_PLIST" ]; then
             echo "$QUIET_LABEL (quiet hours $(quiet_start)-$(quiet_end)): now $(if in_quiet_window "${QUIET_NOW:-$(date +%H:%M)}"; then echo inside, the app should be stopped; else echo outside; fi)"
             print_status "$QUIET_LABEL"
@@ -319,7 +368,8 @@ case "${1:-}" in
             run)     f="$dir/run.log" ;;
             service) f="$LOG_FILE" ;;
             quiet)   f="$QUIET_LOG_FILE" ;;
-            *) echo "usage: $0 logs [app|collect|capture|run|service|quiet]" >&2; exit 2 ;;
+            predict) f="$PREDICT_LOG_FILE" ;;
+            *) echo "usage: $0 logs [app|collect|capture|run|service|quiet|predict]" >&2; exit 2 ;;
         esac
         touch "$f"
         exec tail -n 100 -f "$f"
@@ -331,7 +381,7 @@ case "${1:-}" in
         open_ui "${2:-}"
         ;;
     *)
-        echo "usage: $0 install | uninstall | restart | stop | start | status | logs [app|collect|capture|run|service] | ui | quiet-install | quiet-uninstall" >&2
+        echo "usage: $0 install | uninstall | restart | stop | start | status | logs [app|collect|capture|run|service|quiet|predict] | ui | predict-install | predict-uninstall | predict-restart | quiet-install | quiet-uninstall" >&2
         exit 2
         ;;
 esac

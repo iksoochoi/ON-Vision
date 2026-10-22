@@ -16,6 +16,7 @@ GROUPS = {
     "qr": "qr",
     "qr_scan": "qrpage", "qr_stats": "qrpage",
     "samples_changed": "data",
+    "predict_changed": "predict",
 }
 ALWAYS = ("resync",)
 

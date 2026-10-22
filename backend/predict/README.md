@@ -2,6 +2,10 @@
 
 `backend/models/defect_detection/best.pt`(YOLO11l, PoC 분사/인쇄 불량 데이터로 학습, mAP50 0.31)로 사진을 검사합니다. **카메라 앱은 이 폴더를 읽지 않으므로** 수집 성능에 영향이 없습니다.
 
+- `worker.py`: 저장된 세트를 자동으로 검사하는 **별도 프로세스**(launchd 서비스). 결과는 `captures/.predict/`에 저장되고 웹의 Predict 메뉴에 나옵니다. 설치와 설정은 [docs/predict.md](../../docs/predict.md).
+- `run_folder.py`, `bench.py`: 카메라 없이 PC/Mac에서 시험하는 도구(아래).
+- `engine.py`: 위 셋이 같이 쓰는 모델 로드/추론/그리기.
+
 ## 설치 (카메라 앱과 별도)
 ```bash
 .venv/bin/python -m pip install -r backend/predict/requirements.txt   # torch도 함께 설치됨(약 1~2GB)

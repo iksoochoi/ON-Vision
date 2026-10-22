@@ -29,7 +29,7 @@ from ..core.events import broadcast
 from ..detect.background import get_background
 from ..qr.decode import read_qr
 from ..qr.hub import hub as qr_hub
-from . import capture_log
+from . import capture_log, predictions
 from .meta import (LABEL_STATUSES, bbox_from_background, is_valid_category, label_status, make_bbox, save_meta)
 from .paths import (image_path, meta_path, migrate_set_files, primary_image_path, primary_role, qr_prefix,
                     thumb_path, time_key, view_meta_path)
@@ -259,7 +259,8 @@ class SampleStore:
 
     @staticmethod
     def _remove_files(sample_id, roles):
-        paths = [meta_path(sample_id), *(view_meta_path(sample_id, role) for role in roles)]
+        paths = [meta_path(sample_id), predictions.result_path(sample_id),
+                 *(view_meta_path(sample_id, role) for role in roles)]
         for root in (CAPTURES_DIR, THUMBS_DIR):
             paths += [root / role / f"{sample_id}.jpg" for role in roles]
             paths += [root / f"{sample_id}.jpg", *root.glob(f"{sample_id}__*.jpg")]   # old layout
@@ -497,6 +498,7 @@ class SampleStore:
             removed.append(sample_id)
             done += 1
         self._shoes.remove(removed)
+        predictions.index.remove(removed)
         if done:
             broadcast({"key": "samples_changed"})
         return done
