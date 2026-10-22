@@ -33,6 +33,11 @@ git pull
 - 왼쪽 목록: 세트별 시각, QR 값, 검출된 클래스, **DEFECT / OK / ERROR** 표시. 위쪽에서 All / Defect / OK / Error, 날짜, 클래스로 거릅니다(각 개수도 보임).
 - 오른쪽: 선택한 세트의 카메라 5장에 박스와 `클래스 점수`를 겹쳐 보여 줍니다. 사진을 누르면 원본 크기로 보입니다. 아래에 검출 표, 맨 아래에 전체 클래스별 개수가 있습니다. 새 결과는 서버가 알려 주어서(SSE) 목록이 저절로 갱신됩니다.
 - 위쪽 `worker:` 칩: 워커가 살아 있는지(`not running`이면 꺼져 있음), 장치, 세트당 평균 시간, 대기 개수.
+- **판단에 도움이 되는 정보**(세트를 열 때 저장된 자료로 계산합니다. **다시 예측하지 않으므로** 이미 쌓인 결과에도 바로 보입니다):
+  - **On shoe**: 박스가 신발 위에 있는지(`on shoe` / `off shoe` / `unknown`). 세트를 저장할 때 구해 둔 신발 영역(`views.<카메라>.pick.shoe.box`)과 겹치는 비율이 `ON_PREDICT_ON_SHOE_MIN`(0.5) 이상이면 신발 위입니다. 신발 밖 박스는 점선으로 그려집니다. 신발 영역이 없는 세트(`ON_PICK_MODE=classic`으로 저장)나, 영역이 사진의 `ON_PREDICT_SHOE_MAX_AREA`(80%)를 넘어서 믿기 어려운 경우(left 카메라에서 자주 그렇습니다)는 `unknown`입니다.
+  - **Class mAP50**: 모델이 그 클래스를 자기 검증 사진에서 얼마나 잘 찾았는지(`backend/models/defect_detection/class_metrics.json`, 학습 로그에서 옮긴 값). 0.5 이상 초록, 0.2 미만 노랑. 검출 하나의 정확도가 아니라 **모델의 그 클래스에 대한 평소 성능**입니다.
+  - **Sharp**: 그 카메라 사진의 선명도(세트 JSON의 `sharpness`). 같은 카메라끼리 비교하세요. 카메라 칸 제목에도 나옵니다.
+  - **검출 개수**: 카메라 칸 제목의 `N found`.
 - **DEFECT 기준**: `ON_PREDICT_OK_CLASSES`에 없는 클래스가 하나라도 검출되면 불량입니다. 모델에 "좋은 인쇄" 클래스(`Print4_poor_print_good`)가 있어서 기본으로 OK 클래스에 넣었습니다.
 - ERROR: 사진을 하나도 읽지 못했거나 추론이 실패한 세트(다시 시도하지 않음). 일부 사진만 빠진 세트는 나머지로 판정하고 카메라 칸에 이유가 나옵니다.
 
@@ -49,6 +54,8 @@ git pull
 | `ON_PREDICT_THREADS` | `2` | torch CPU 스레드 수 |
 | `ON_PREDICT_MAX_AGE_HOURS` | `24` | 이보다 오래된 세트는 안 함(0 = 제한 없음) |
 | `ON_PREDICT_MAX_BACKLOG` | `100` | 밀리면 최신 이 개수만, 오래된 것은 건너뜀 |
+| `ON_PREDICT_ON_SHOE_MIN` | `0.5` | 박스의 이만큼이 신발 영역 안에 있으면 `on shoe` (앱이 읽음, 화면 표시용) |
+| `ON_PREDICT_SHOE_MAX_AREA` | `0.8` | 신발 영역이 사진의 이 비율을 넘으면 믿지 않고 `unknown` |
 | `ON_PREDICT_OK_CLASSES` | `Print4_poor_print_good` | 이 클래스만 검출되면 불량이 아님(쉼표로 구분) |
 
 ## PC에서 시험 / 속도 측정

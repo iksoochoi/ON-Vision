@@ -32,4 +32,5 @@ class PredictRoutes:
             return
         meta = store.get(rest) or {}
         primary = meta.get("primary_view")
-        self._send_json({"result": result, "views": list(meta.get("views") or result.get("views") or []), "primary": primary})
+        self._send_json({"result": result, "views": list(meta.get("views") or result.get("views") or []), "primary": primary,
+                         "context": predictions.context(result, meta)})

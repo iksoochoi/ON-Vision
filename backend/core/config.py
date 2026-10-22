@@ -319,6 +319,11 @@ PREDICT_THREADS = max(1, _env("ON_PREDICT_THREADS", 2, int))         # torch CPU
 PREDICT_MAX_AGE_HOURS = max(0.0, _env("ON_PREDICT_MAX_AGE_HOURS", 24.0, float))   # older sets are not predicted (0 = no limit)
 PREDICT_MAX_BACKLOG = max(1, _env("ON_PREDICT_MAX_BACKLOG", 100, int))   # more waiting than this: the OLDEST are left out
 # Detections of these classes mean "fine", not "defect" (the model has a class for a good print)
+# What the Predict page shows next to a detection (computed when a set is opened, nothing is predicted again):
+# a box counts as ON the shoe when this part of it lies inside the shoe region of its picture ...
+PREDICT_ON_SHOE_MIN = max(0.0, min(1.0, _env("ON_PREDICT_ON_SHOE_MIN", 0.5, float)))
+# ... but a shoe region covering more of the picture than this is not trusted (then: unknown), e.g. a wrong region
+PREDICT_SHOE_MAX_AREA = max(0.1, min(1.0, _env("ON_PREDICT_SHOE_MAX_AREA", 0.8, float)))
 PREDICT_OK_CLASSES = [c.strip() for c in _env("ON_PREDICT_OK_CLASSES", "Print4_poor_print_good").split(",") if c.strip()]
 
 # ---- dataset export (YOLO format) ------------------------------------------

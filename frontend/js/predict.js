@@ -13,6 +13,7 @@ let totals = null;
 let okClasses = [];
 let selected = null;
 let current = null;   // the result shown on the right
+let currentCtx = null;   // and what helps to judge it (data.context)
 let loading = false;
 let again = false;
 
@@ -106,14 +107,19 @@ async function load(append) {
   }
 }
 
-function boxes(dets) {
-  return dets.map((d) => {
+// ctx: the context of the same detections (on the shoe or not), see storage/predictions.py
+function boxes(dets, ctx) {
+  return dets.map((d, i) => {
     const [x0, y0, x1, y1] = d.box;
     const fine = okClasses.includes(d.class);
-    return `<div class="det${fine ? ' fine' : ''}" style="left:${x0 * 100}%;top:${y0 * 100}%;width:${(x1 - x0) * 100}%;height:${(y1 - y0) * 100}%">` +
-      `<i>${esc(d.class)} ${d.conf.toFixed(2)}</i></div>`;
+    const off = ctx && ctx[i] && ctx[i].on_shoe === 'off';
+    return `<div class="det${fine ? ' fine' : ''}${off ? ' off' : ''}" style="left:${x0 * 100}%;top:${y0 * 100}%;width:${(x1 - x0) * 100}%;height:${(y1 - y0) * 100}%">` +
+      `<i>${esc(d.class)} ${d.conf.toFixed(2)}${off ? ' · off shoe' : ''}</i></div>`;
   }).join('');
 }
+
+const SHOE_TEXT = { on: 'on shoe', off: 'off shoe', unknown: 'unknown' };
+const mapChip = (m) => (m ? `<span class="chip ${m.map50 >= 0.5 ? 'ok' : (m.map50 < 0.2 ? 'warn' : '')}" title="Validation mAP50 of the model for this class (${m.instances} objects in the validation pictures)">${m.map50.toFixed(2)}</span>` : '-');
 
 const rank = (role) => (ORDER.indexOf(role) < 0 ? 9 : ORDER.indexOf(role));
 
@@ -128,22 +134,31 @@ async function showSet(id) {
     return;
   }
   const res = data.result;
+  const ctx = data.context || { views: {}, classes: {} };
   current = res;
+  currentCtx = ctx;
   const roles = (data.views.length ? data.views : Object.keys(res.views || {})).slice().sort((a, b) => rank(a) - rank(b));
   const all = [];
   const cells = roles.map((role) => {
     const v = (res.views || {})[role];
     const err = (res.errors || {})[role];
     const dets = v ? v.detections : [];
-    dets.forEach((d) => all.push({ role, class: d.class, conf: d.conf }));
-    const info = v ? `${dets.length} found · ${Math.round(v.ms)} ms` : esc(err || 'not predicted');
+    const vc = (ctx.views || {})[role] || {};
+    dets.forEach((d, i) => all.push({ role, class: d.class, conf: d.conf, c: (vc.detections || [])[i] || {}, sharp: vc.sharpness }));
+    const sharp = vc.sharpness == null ? '' : ` · sharp ${Math.round(vc.sharpness)}`;
+    const info = v ? `${dets.length} found${sharp} · ${Math.round(v.ms)} ms` : esc(err || 'not predicted');
     return `<div class="pred-cell"><div class="cap"><b>${esc(role)}</b><span>${info}</span></div>
-      <div class="pred-box" data-role="${esc(role)}"><img loading="lazy" alt="" src="${imageUrl(id, role, 'thumb')}">${boxes(dets)}</div></div>`;
+      <div class="pred-box" data-role="${esc(role)}"><img loading="lazy" alt="" src="${imageUrl(id, role, 'thumb')}">${boxes(dets, vc.detections)}</div></div>`;
   }).join('');
   const table = all.length
-    ? '<div class="card"><h3>Detections</h3><table class="qr-table"><thead><tr><th>Camera</th><th>Class</th><th class="num">Score</th></tr></thead><tbody>' +
-      all.sort((a, b) => b.conf - a.conf).map((d) => `<tr><td>${esc(d.role)}</td><td>${esc(d.class)}${okClasses.includes(d.class) ? ' <span class="chip ok">fine</span>' : ''}</td><td class="num">${d.conf.toFixed(2)}</td></tr>`).join('') +
-      '</tbody></table></div>'
+    ? '<div class="card"><h3>Detections</h3><table class="qr-table"><thead><tr><th>Camera</th><th>Class</th><th class="num">Score</th>' +
+      '<th title="Does the box lie on the shoe? (the shoe region found when the set was saved)">On shoe</th>' +
+      '<th class="num" title="Validation mAP50 of the model for this class: how well it found this class in its own test pictures">Class mAP50</th>' +
+      '<th class="num" title="Sharpness of the picture of this camera (higher = sharper; compare pictures of the same camera)">Sharp</th></tr></thead><tbody>' +
+      all.sort((a, b) => b.conf - a.conf).map((d) => `<tr><td>${esc(d.role)}</td><td>${esc(d.class)}${okClasses.includes(d.class) ? ' <span class="chip ok">fine</span>' : ''}</td><td class="num">${d.conf.toFixed(2)}</td>` +
+        `<td><span class="chip ${d.c.on_shoe === 'off' ? 'warn' : (d.c.on_shoe === 'on' ? 'ok' : '')}"${d.c.inside != null ? ` title="${Math.round(d.c.inside * 100)}% of the box is inside the shoe region"` : ''}>${SHOE_TEXT[d.c.on_shoe] || 'unknown'}</span></td>` +
+        `<td class="num">${mapChip((ctx.classes || {})[d.class])}</td><td class="num">${d.sharp == null ? '-' : Math.round(d.sharp)}</td></tr>`).join('') +
+      '</tbody></table><div class="hint">A box that is not on the shoe is drawn dashed. "unknown": no shoe region was stored for that picture (sets saved with ON_PICK_MODE=classic) or it covers most of the picture and is not trusted. Class mAP50 is a property of the model, not of this detection: a low value means the model finds that class badly even in its own tests.</div></div>'
     : '<div class="hint">Nothing was detected in any picture.</div>';
   $('detail').dataset.id = id;
   $('detail').innerHTML = `<div class="pred-head"><h2>${esc(res.shoe_id || 'no QR value')} ${badge(res)}</h2>
@@ -158,7 +173,8 @@ function openLightbox(id, role) {
   const v = current && current.views ? current.views[role] : null;
   $('lbImg').src = imageUrl(id, role, 'image');
   $('lbBox').querySelectorAll('.det').forEach((n) => n.remove());
-  $('lbBox').insertAdjacentHTML('beforeend', boxes(v ? v.detections : []));
+  const vc = currentCtx && currentCtx.views ? currentCtx.views[role] : null;
+  $('lbBox').insertAdjacentHTML('beforeend', boxes(v ? v.detections : [], vc ? vc.detections : null));
   $('lbCaption').textContent = `${role.toUpperCase()} · ${id}`;
   $('lbOpen').href = imageUrl(id, role, 'image');
   $('lb').hidden = false;

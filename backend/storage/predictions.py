@@ -15,7 +15,7 @@ import os
 import threading
 import time
 
-from ..core.config import PREDICT_DIR, PREDICT_OK_CLASSES
+from ..core.config import PREDICT_DIR, PREDICT_MODEL, PREDICT_OK_CLASSES, PREDICT_ON_SHOE_MIN, PREDICT_SHOE_MAX_AREA
 from .paths import time_key
 
 REFRESH_SEC = 1.5
@@ -58,6 +58,60 @@ def read_status():
         return {"alive": False}
     status["alive"] = time.time() - status.get("ts", 0) < STATUS_FRESH_SEC
     return status
+
+
+_metrics = {"mtime": None, "data": {}}
+
+
+def class_metrics():
+    """The validation results of the model per class ({class: {"map50", "instances", ...}}), read from
+    class_metrics.json next to the model file; {} when there is none."""
+    path = PREDICT_MODEL.with_name("class_metrics.json")
+    try:
+        mtime = path.stat().st_mtime_ns
+        if _metrics["mtime"] != mtime:
+            _metrics["data"] = json.loads(path.read_text(encoding="utf-8")).get("classes") or {}
+            _metrics["mtime"] = mtime
+    except (OSError, ValueError):
+        _metrics["data"] = {}
+    return _metrics["data"]
+
+
+def inside_fraction(box, region):
+    """The part of `box` (x0, y0, x1, y1) that lies inside `region` (same form), 0..1."""
+    w = min(box[2], region[2]) - max(box[0], region[0])
+    h = min(box[3], region[3]) - max(box[1], region[1])
+    area = (box[2] - box[0]) * (box[3] - box[1])
+    return max(0.0, w) * max(0.0, h) / area if area > 0 else 0.0
+
+
+def context(result, meta):
+    """What helps to judge the detections of a set, worked out from what is stored (no new prediction):
+    per picture its sharpness (from the set's JSON), how many detections it has, and per detection whether it lies on
+    the shoe ("on" / "off" / "unknown": no shoe region stored for that picture, or it covers more than
+    PREDICT_SHOE_MAX_AREA of it) with the part of the box that is inside; per class the validation mAP50 of the model."""
+    metrics = class_metrics()
+    set_views = (meta or {}).get("views") or {}
+    out = {"views": {}, "classes": {}}
+    for role, v in (result.get("views") or {}).items():
+        info = set_views.get(role) if isinstance(set_views.get(role), dict) else {}
+        shoe = (info.get("pick") or {}).get("shoe") or {}
+        box, area = shoe.get("box"), shoe.get("area")
+        trusted = bool(box) and (area is None or area <= PREDICT_SHOE_MAX_AREA)
+        dets = []
+        for d in v.get("detections", []):
+            if not trusted:
+                dets.append({"on_shoe": "unknown", "inside": None})
+                continue
+            inside = inside_fraction(d["box"], box)
+            dets.append({"on_shoe": "on" if inside >= PREDICT_ON_SHOE_MIN else "off", "inside": round(inside, 2)})
+        out["views"][role] = {"sharpness": info.get("sharpness"), "count": len(dets), "detections": dets,
+                              "shoe": {"area": area, "trusted": trusted} if box else None}
+        for d in v.get("detections", []):
+            m = metrics.get(d["class"])
+            out["classes"][d["class"]] = ({"map50": m["map50"], "instances": m["instances"]} if m else None)
+    out["on_shoe_min"] = PREDICT_ON_SHOE_MIN
+    return out
 
 
 def is_defect(detections, ok_classes):

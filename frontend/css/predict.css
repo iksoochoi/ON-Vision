@@ -40,6 +40,7 @@
 .det i { position: absolute; left: -2px; top: 0; transform: translateY(-100%); background: var(--ng); color: #1d0a05;
          font: 680 11px/1.3 var(--mono); padding: 1px 5px; white-space: nowrap; font-style: normal; }
 .det.fine i { background: var(--ok); }
+.det.off { border-style: dashed; opacity: .75; }
 .pred-lbwrap { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
 .pred-lbwrap .pred-box { max-height: 100%; }
 .pred-lbwrap img { max-height: calc(100vh - 90px); width: auto; max-width: 100%; }
