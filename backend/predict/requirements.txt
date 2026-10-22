@@ -1,0 +1,8 @@
+# Only for backend/predict (defect detection test). The camera app does NOT need these (requirements.txt stays as it is,
+# bin/setup_mac.sh does not install this file): install them on top of the app's .venv
+#   .venv/bin/python -m pip install -r backend/predict/requirements.txt
+# Tested together with the pinned opencv-python / numpy of requirements.txt (Python 3.12). torch and torchvision come in
+# with ultralytics; if no wheel matches your Python/macOS, loosen the versions.
+# Ultralytics is AGPL-3.0 licensed: check before a commercial use.
+ultralytics==8.4.183
+psutil==7.2.2

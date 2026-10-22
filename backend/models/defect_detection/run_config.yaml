@@ -1,0 +1,57 @@
+coco_json: /home/jovyan/data/PoC Demo/_merged/annotations.json
+images_dir: /home/jovyan/data/PoC Demo/_merged/images
+selected_categories:
+- Spray4_overspray
+- Spray5_tail
+- Spray7_helix
+- Spray8_thin_or_thick
+- Spray9_contamination
+- Spray10_bubble
+- Spray_hole
+- spray_quality
+- Print1_over_printing
+- Print3_smudging
+- Print3_yellowing
+- Print4_poor_print_good
+- Print4_poor_print_bad
+category_merges:
+  accumulation: spray_quality
+model: yolo11l.pt
+imgsz: 1280
+rect: true
+epochs: 300
+patience: 50
+batch: 4
+device: 0
+workers: 4
+optimizer: AdamW
+lr0: 0.001
+lrf: 0.005
+cos_lr: true
+warmup_epochs: 5
+label_smoothing: 0.1
+close_mosaic: 15
+cache: ram
+amp: true
+seed: 42
+train_mode: holdout
+val_ratio: 0.2
+k_folds: 5
+stratify: true
+augment:
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  degrees: 15.0
+  translate: 0.1
+  scale: 0.6
+  shear: 3.0
+  perspective: 0.0005
+  flipud: 0.0
+  fliplr: 0.5
+  mosaic: 1.0
+  mixup: 0.3
+  copy_paste: 0.3
+  erasing: 0.3
+project: runs
+name: kfold_holdout_20260630_061330
