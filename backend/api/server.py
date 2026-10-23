@@ -169,6 +169,8 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, Pr
             self._send_json_or_error(result, err)
         elif path == "/api/export":
             self._export(data)
+        elif path == "/api/predict/export":
+            self._export_predict(data)
         elif path == "/api/samples/delete":
             ids = data.get("ids")
             if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and ID_RE.match(i) for i in ids):

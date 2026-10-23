@@ -3,6 +3,7 @@
 from ..core.config import PREDICT_CORRECT
 from ..storage import predictions
 from ..storage.paths import ID_RE
+from ..storage.predict_export import export_predictions
 from ..storage.store import store
 
 FILTERS = ("all", "defect", "ok", "error")
@@ -10,6 +11,33 @@ MAX_LIMIT = 200
 
 
 class PredictRoutes:
+    def _export_predict(self, data):
+        """POST /api/predict/export. Body: {"ids": [set ids]} or {"filter", "cls", "date"} (the list as the page shows it);
+        "corrected": true | false (default: as the server starts), "originals": true | false.
+        Saves the pictures with the boxes + result.json per set into exports/predict_<time>/ and a zip: the summary."""
+        corrected = data.get("corrected")
+        source = {}
+        ids = data.get("ids")
+        if ids is not None:
+            if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and ID_RE.match(i) for i in ids):
+                self.send_error(400, "ids: a list of set ids")
+                return
+        else:
+            flt = data.get("filter") if data.get("filter") in FILTERS else "all"
+            cls, date = data.get("cls") or None, data.get("date") or None
+            rows, _ = predictions.index.page(flt, cls, date, 0, 0, PREDICT_CORRECT if corrected is None else bool(corrected))
+            ids = [r["id"] for r in rows]
+            source = {"filter": flt, "cls": cls, "date": date}
+        try:
+            result = export_predictions(ids, corrected, bool(data.get("originals")), source)
+        except ValueError as e:
+            self.send_error(400, str(e))
+            return
+        except OSError as e:
+            self.send_error(500, str(e))
+            return
+        self._send_json(result)
+
     def _get_predict(self, rest, query):
         """/api/predict?filter=all|defect|ok|error&cls=&date=&limit=&offset=&corrected=1|0 -> {"rows", "totals", "status"}
         /api/predict/<id>                                                      -> {"result", "views", "primary"}"""

@@ -330,6 +330,11 @@ PREDICT_SHOE_MAX_AREA = max(0.1, min(1.0, _env("ON_PREDICT_SHOE_MAX_AREA", 0.8, 
 PREDICT_CORRECT = _env("ON_PREDICT_CORRECT", 1, int) != 0
 PREDICT_RECUR_MIN = max(2, _env("ON_PREDICT_RECUR_MIN", 10, int))
 PREDICT_RECUR_IOU = max(0.1, min(0.95, _env("ON_PREDICT_RECUR_IOU", 0.5, float)))
+# Saving the Predict page's results (the Save buttons): pictures with the boxes drawn + result.json per set into
+# exports/predict_<time>/ (and a zip). The pictures are scaled down to this long side (0 = original size); at most
+# this many sets go into one save.
+PREDICT_EXPORT_MAX_SIDE = max(0, _env("ON_PREDICT_EXPORT_MAX_SIDE", 2000, int))
+PREDICT_EXPORT_MAX_SETS = max(1, _env("ON_PREDICT_EXPORT_MAX_SETS", 200, int))
 PREDICT_OK_CLASSES = [c.strip() for c in _env("ON_PREDICT_OK_CLASSES", "Print4_poor_print_good").split(",") if c.strip()]
 
 # ---- dataset export (YOLO format) ------------------------------------------

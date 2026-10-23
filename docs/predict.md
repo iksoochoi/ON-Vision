@@ -48,6 +48,25 @@ git pull
 - **DEFECT 기준**: `ON_PREDICT_OK_CLASSES`에 없는 클래스가 하나라도 검출되면 불량입니다. 모델에 "좋은 인쇄" 클래스(`Print4_poor_print_good`)가 있어서 기본으로 OK 클래스에 넣었습니다.
 - ERROR: 사진을 하나도 읽지 못했거나 추론이 실패한 세트(다시 시도하지 않음). 일부 사진만 빠진 세트는 나머지로 판정하고 카메라 칸에 이유가 나옵니다.
 
+## 결과 저장 (Save 버튼)
+화면에 보이는 결과를 **박스가 그려진 사진 + result.json**으로 파일에 저장합니다. 불량 후보 정리, 재학습 라벨링 준비, 다른 곳으로 옮겨 보기 위한 용도입니다.
+- **Save this set**(오른쪽 위, 세트 제목 아래): 지금 열어 둔 세트 하나.
+- **Save shown (N)**(왼쪽 위): 목록에 **지금 보이는 세트 전부**(All/Defect/OK/Error, 날짜, 클래스 필터가 적용된 것). 50세트가 넘으면 한 번 물어봅니다. 한 번에 최대 `ON_PREDICT_EXPORT_MAX_SETS`(200)세트이고 넘으면 나머지는 빠졌다고 알려 줍니다.
+- **with originals**: 박스 없는 원본 사진도 같이 저장합니다(용량이 커집니다).
+- **Apply corrections** 체크 상태가 그대로 반영됩니다(켜면 판정에 들어가는 박스는 빨강, 빠진 박스는 얇은 회색과 이유, 끄면 모델의 원래 결과로 전부 빨강).
+- 저장 위치는 **앱이 도는 컴퓨터**의 `exports/predict_<날짜_시각>/`(`ON_EXPORTS_DIR`)이고, 같은 이름의 zip도 만들어서 **Download zip** 링크가 나옵니다(다른 컴퓨터의 브라우저에서도 받을 수 있음).
+```
+exports/predict_20261023_110500/
+  manifest.json            저장한 세트 목록, 필터, 보정 설정(recur_min 등)
+  <세트 id>/result.json    판정(모델 원래 / 보정), 카메라별 검출: class, conf, box(비율과 원본 사진 픽셀),
+                           신발 위 여부와 겹침 비율, 반복 개수, 판정에 들어가는지(counts)와 빠진 이유, 클래스 mAP50, 선명도
+  <세트 id>/<카메라>.jpg    박스가 그려진 사진 (긴 변 `ON_PREDICT_EXPORT_MAX_SIDE`(2000)px로 줄임, 0이면 원본 크기)
+  <세트 id>/original/<카메라>.jpg   with originals를 켰을 때만
+exports/predict_20261023_110500.zip
+```
+- 박스 좌표 `box_px`는 **원본 사진의 픽셀**이라, 줄인 사진이 아니라 `original`이나 원래 저장된 사진에 그대로 맞습니다.
+- 세트마다 사진 읽기와 그리기에 1초쯤 걸립니다(사진 5장). 저장 중에는 버튼이 `Saving…`으로 바뀝니다. 예측 결과가 없는 세트나 사진이 없는 카메라는 건너뛰고 이유를 `manifest.json`에 남깁니다.
+
 ## 결과 파일
 `captures/.predict/<세트 id>.json` (워커가 쓰고 앱은 읽기만): `defect`(true/false/null, **모델의 원래 판정**. 보정 판정은 화면이 계산), `count`, `classes`, 카메라별 `detections`(상자는 사진 크기에 대한 0~1 비율), `ms`, 모델·장치·입력 크기·점수 기준. `.status.json`은 워커 상태입니다. 세트를 지우면(웹 삭제, `capture_backup.sh`의 백업/삭제) **결과도 함께** 지워지고, 백업 zip에도 같이 들어갑니다.
 
@@ -66,6 +85,8 @@ git pull
 | `ON_PREDICT_CORRECT` | `1` | 화면이 보정을 켠 채로 시작(화면에서 바꿀 수 있음) |
 | `ON_PREDICT_RECUR_MIN` | `10` | 같은 자리·같은 클래스가 이 개수 이상의 다른 세트에 있으면 반복 |
 | `ON_PREDICT_RECUR_IOU` | `0.5` | 같은 자리로 보는 박스 겹침(IoU) 기준 |
+| `ON_PREDICT_EXPORT_MAX_SIDE` | `2000` | 저장하는 박스 사진의 긴 변(0 = 원본 크기) |
+| `ON_PREDICT_EXPORT_MAX_SETS` | `200` | 한 번에 저장하는 최대 세트 수 |
 | `ON_PREDICT_OK_CLASSES` | `Print4_poor_print_good` | 이 클래스만 검출되면 불량이 아님(쉼표로 구분) |
 
 ## PC에서 시험 / 속도 측정

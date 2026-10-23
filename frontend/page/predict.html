@@ -45,6 +45,11 @@
           <select id="dateSel" title="Capture date"><option value="">All dates</option></select>
           <select id="clsSel" title="Defect class"><option value="">All classes</option></select>
         </div>
+        <div class="row savebar">
+          <button type="button" id="saveAll" class="secondary" title="Save the pictures with the boxes and a result.json of every set in this list (as filtered) into the exports folder of the app">Save shown</button>
+          <label class="corr" title="Also put the pictures as they were saved next to the ones with boxes"><input type="checkbox" id="saveOrig"> with originals</label>
+        </div>
+        <div class="hint" id="saveMsg" hidden></div>
         <label class="corr" title="Detections that recur at the same place in many sets, or lie off the shoe, do not count for the verdict"><input type="checkbox" id="corr" checked> Apply corrections <small id="corrInfo"></small></label>
       </div>
       <div id="rows" class="pred-rows"><div class="empty">Loading…</div></div>

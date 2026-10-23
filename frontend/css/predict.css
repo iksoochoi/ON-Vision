@@ -44,6 +44,11 @@
 .pred-row .rb { margin-left: auto; flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .pred-row .rb .badge { margin-left: 0; }
 .rawnote { color: var(--dim); font: 560 10px/1.2 var(--mono); }
+.savebar { gap: 10px; }
+.savebar button { padding: 6px 12px; }
+.savedok { color: var(--ok); word-break: break-all; }
+.savedok a { color: var(--accent); }
+.saveerr { color: var(--ng); }
 .corr { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dim); cursor: pointer; }
 .corr small { font-family: var(--mono); }
 .pred-lbwrap { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }

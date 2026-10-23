@@ -45,6 +45,37 @@ function rawNote(r) {
   return `<span class="rawnote" title="The model alone said DEFECT (${r.raw_count} detections); after the corrections nothing counts">raw: ${r.raw_defect ? 'DEFECT' : 'OK'}</span>`;
 }
 
+// Save: the pictures with the boxes drawn + result.json per set go into exports/predict_<time>/ on the computer that
+// runs the app, and a zip of it can be downloaded here.
+async function saveSets(body, button) {
+  const msg = $('saveMsg');
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Saving…';
+  msg.hidden = false;
+  msg.className = 'hint';
+  msg.textContent = 'Saving the pictures and result.json (about a second per set)…';
+  try {
+    const r = await fetch('/api/predict/export', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, corrected: !!corrected, originals: $('saveOrig').checked }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || r.status);
+    const skipped = Object.keys(data.skipped || {}).length;
+    msg.className = 'hint savedok';
+    msg.innerHTML = `Saved ${data.saved} set${data.saved === 1 ? '' : 's'} (${data.corrected ? 'with corrections' : 'raw'}) to <span class="mono">${esc(data.dir)}</span> · ` +
+      `<a href="/exports/${encodeURIComponent(data.zip)}">Download zip</a>` +
+      (skipped ? ` · ${skipped} skipped` : '') + (data.capped ? ` · ${data.capped} more were left out (the most that goes into one save)` : '');
+  } catch (e) {
+    msg.className = 'hint saveerr';
+    msg.textContent = 'Could not save: ' + e.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+}
+
 function renderWorker(status) {
   const chip = $('workerChip');
   if (!status || !status.alive) {
@@ -104,6 +135,8 @@ async function load(append) {
     okClasses = totals.ok_classes || [];
     if (corrected === null) corrected = !!totals.corrected;
     $('corr').checked = corrected;
+    $('saveAll').textContent = totals.matching ? `Save shown (${totals.matching})` : 'Save shown';
+    $('saveAll').disabled = !totals.matching;
     $('corrInfo').textContent = corrected ? `${totals.raw_defect} → ${totals.defect} defect sets` : '';
     rows = append ? rows.concat(data.rows) : data.rows;
     renderWorker(data.status);
@@ -188,7 +221,8 @@ async function showSet(id) {
   $('detail').innerHTML = `<div class="pred-head"><h2>${esc(res.shoe_id || 'no QR value')} ${badge(verdictRow(ctx, res))}</h2>
     <div class="meta">${esc((res.timestamp || '').replace('T', ' ').slice(0, 19))} · predicted ${esc((res.predicted_at || '').replace('T', ' '))} ·
       ${esc(res.model)} on ${esc(res.device)}, ${res.imgsz}px, score ≥ ${res.conf} · ${res.ms} ms ·
-      <a class="linkbtn" style="padding:2px 10px" href="/browse?sample=${encodeURIComponent(id)}">Open in browse</a></div>
+      <a class="linkbtn" style="padding:2px 10px" href="/browse?sample=${encodeURIComponent(id)}">Open in browse</a>
+      · <button type="button" id="saveOne" class="secondary" style="padding:2px 10px" title="Save this set: the pictures with the boxes and a result.json">Save this set</button></div>
     ${res.error ? `<div class="card">Failed: ${esc(res.error)}</div>` : ''}</div>
     <div class="pred-grid">${cells}</div>${table}`;
 }
@@ -227,6 +261,15 @@ $('flt').onclick = (e) => {
   load(false);
 };
 $('corr').onchange = () => { corrected = $('corr').checked; load(false); if (selected) showSet(selected); };
+$('saveAll').onclick = () => {
+  const n = totals ? totals.matching : 0;
+  if (n > 50 && !window.confirm(`Save ${n} sets? Every set takes about a second and some disk space.`)) return;
+  saveSets({ filter: flt, cls: $('clsSel').value || null, date: $('dateSel').value || null }, $('saveAll'));
+};
+$('detail').addEventListener('click', (e) => {
+  const b = e.target.closest('#saveOne');
+  if (b && selected) saveSets({ ids: [selected] }, b);
+});
 $('dateSel').onchange = () => load(false);
 $('clsSel').onchange = () => load(false);
 $('moreBtn').onclick = () => load(true);
