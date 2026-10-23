@@ -344,6 +344,8 @@ PREDICT_ZONE_SETS = max(10, _env("ON_PREDICT_ZONE_SETS", 60, int))
 PREDICT_ZONE_MIN_SETS = max(5, _env("ON_PREDICT_ZONE_MIN_SETS", 20, int))
 PREDICT_ZONE_REFRESH_SETS = max(5, _env("ON_PREDICT_ZONE_REFRESH_SETS", 30, int))
 PREDICT_ZONE_THR = max(0.05, min(0.9, _env("ON_PREDICT_ZONE_THR", 0.30, float)))
+# ... the zone grows from a sure core: pixels that differ from the median in more than this part of the pictures
+PREDICT_ZONE_CORE = max(0.2, min(0.95, _env("ON_PREDICT_ZONE_CORE", 0.50, float)))
 PREDICT_OK_CLASSES = [c.strip() for c in _env("ON_PREDICT_OK_CLASSES", "Print4_poor_print_good").split(",") if c.strip()]
 
 # ---- dataset export (YOLO format) ------------------------------------------

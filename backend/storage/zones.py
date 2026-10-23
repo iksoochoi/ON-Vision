@@ -3,9 +3,11 @@
 For one camera the saved pictures of the latest sets are laid over each other. The camera does not move and the scene
 behind the shoe (the frame, the window, the belt) does not change from one shoe to the next, so a pixel that is often very
 different from the median over all the pictures is a pixel the shoe passes over; the rest is background. That map
-(how often a pixel differs strongly from the median) is cut at ON_PREDICT_ZONE_THR, cleaned (closing, opening, small bits
-dropped) and its holes are filled (the inside of the shoe is the median itself, so it shows no difference): the zone is
-the union of the places the shoe was, as a mask of ZONE_W x ZONE_H.
+(how often a pixel differs strongly from the median) cannot simply be cut at one threshold: the sheet on the belt is
+wrinkled and its wrinkles differ about as often as the edge of a shoe that is off by a few pixels. So the zone grows from a
+sure core (the places that differ most often: the edges of the shoe, the jig), filled row by row (the inside of the shoe is
+the median itself, so it shows no difference) and grown a little: the union of the places the shoe was, as a mask of
+ZONE_W x ZONE_H (see zone_from_pictures).
 
 The Predict page uses it for a detection whose picture has no shoe region of its own (every camera but the reference
 one): a box that is less than ON_PREDICT_ON_SHOE_MIN inside the zone is "off shoe" and does not count (see
@@ -23,12 +25,15 @@ from datetime import datetime
 import cv2
 import numpy as np
 
-from ..core.config import (PREDICT_DIR, PREDICT_ZONE, PREDICT_ZONE_MIN_SETS, PREDICT_ZONE_REFRESH_SETS, PREDICT_ZONE_SETS,
-                           PREDICT_ZONE_THR)
+from ..core.config import (PREDICT_DIR, PREDICT_ZONE, PREDICT_ZONE_CORE, PREDICT_ZONE_MIN_SETS, PREDICT_ZONE_REFRESH_SETS,
+                           PREDICT_ZONE_SETS, PREDICT_ZONE_THR)
 
 ZONE_W, ZONE_H = 320, 240
 DIFF = 25            # a pixel is "different" from the median when it is this many grey levels away
-MIN_BIT = 0.01       # pieces of the zone smaller than this part of the picture are noise
+MIN_BIT = 0.003      # pieces of the core smaller than this part of the picture are noise
+GROW_PX = 6          # the core grows by at most this many pixels (of ZONE_W) into the places that differ less often
+MARGIN_PX = 3        # and the zone gets this margin (the shoe is not always in the same place)
+MIN_ZONE = 0.02      # a zone smaller than this part of the picture is a failure (nothing found): no zone, not an empty one
 FOLDER = PREDICT_DIR / "zones"
 
 
@@ -50,17 +55,46 @@ def fill_holes(mask):
     return (mask | (1 - flooded[1:-1, 1:-1])).astype(np.uint8)
 
 
-def zone_from_pictures(pictures, thr=None):
-    """The zone mask (0/1, ZONE_H x ZONE_W) from a list of ZONE_W x ZONE_H grey pictures of one camera."""
+def row_fill(piece):
+    """Every row of a mask piece filled from its first to its last pixel: the inside of the shoe shows no difference (it is
+    the median itself), the rows tell where the shoe is. A row with no pixel stays empty (the window above the toe)."""
+    out = np.zeros_like(piece)
+    for y in range(piece.shape[0]):
+        xs = np.flatnonzero(piece[y])
+        if len(xs):
+            out[y, xs[0]:xs[-1] + 1] = 1
+    return out
+
+
+def zone_from_pictures(pictures, thr=None, core=None):
+    """The zone mask (0/1, ZONE_H x ZONE_W) from a list of ZONE_W x ZONE_H grey pictures of one camera.
+
+    A wrinkled belt differs from the median picture in many places too (about as often as the edge of a shoe that is
+    off by a few pixels), so one threshold cannot tell the shoe from the belt. The zone is made from a sure core instead:
+    pixels that differ in more than `core` of the pictures (the edges of the shoe, the jig), joined (closing), small
+    pieces dropped, every piece filled row by row (the inside of the shoe), grown by a few pixels into the places that
+    differ in more than `thr` of the pictures, and given a small margin. Belt wrinkles are not part of the core, and the
+    growing is too short to reach a piece of belt that does not touch the shoe."""
     thr = PREDICT_ZONE_THR if thr is None else thr
+    core = PREDICT_ZONE_CORE if core is None else core
     stack = np.stack(pictures).astype(np.float32)
     often = (np.abs(stack - np.median(stack, axis=0)) > DIFF).mean(axis=0)
-    zone = (often > thr).astype(np.uint8)
-    zone = cv2.morphologyEx(zone, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11)))
-    zone = cv2.morphologyEx(zone, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(zone)
-    keep = [i for i in range(1, n) if stats[i, cv2.CC_STAT_AREA] > MIN_BIT * ZONE_W * ZONE_H]
-    return fill_holes(np.isin(labels, keep).astype(np.uint8))
+    # a pixel that is two things in turn (shoe / background) is "different" in at most half of the pictures: when the
+    # shoes are alike the strongest places stay below `core`, so it never asks for more than most of what the camera shows
+    core = max(thr + 0.05, min(core, 0.85 * float(np.percentile(often, 99))))
+    sure = (often > core).astype(np.uint8)
+    sure = cv2.morphologyEx(sure, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)))
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(sure)
+    zone = np.zeros_like(sure)
+    for i in range(1, n):
+        if stats[i, cv2.CC_STAT_AREA] > MIN_BIT * ZONE_W * ZONE_H:
+            zone |= row_fill((labels == i).astype(np.uint8))
+    allowed = (often > thr).astype(np.uint8)
+    step = np.ones((3, 3), np.uint8)
+    for _ in range(GROW_PX):   # growing into the places that differ less often, a little at a time
+        zone = cv2.dilate(zone, step) & (allowed | zone)
+    zone = cv2.dilate(zone, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * MARGIN_PX + 1, 2 * MARGIN_PX + 1)))
+    return fill_holes(zone)
 
 
 def polygons_of(mask):
@@ -161,6 +195,8 @@ class Zones:
                 if len(pictures) < PREDICT_ZONE_MIN_SETS:
                     continue
                 mask = zone_from_pictures(pictures)
+                if float(mask.mean()) < MIN_ZONE:   # an empty zone would put every box off the shoe
+                    continue
                 masks[role] = mask
                 meta[role] = {"sets": len(pictures), "area": round(float(mask.mean()), 3), "polygons": polygons_of(mask)}
                 used[role] = len(pictures)
