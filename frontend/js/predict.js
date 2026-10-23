@@ -13,6 +13,9 @@ let rows = [];
 let totals = null;
 let okClasses = [];
 let selected = null;
+let zones = {};   // the learned shoe zone of each camera (outline polygons), see storage/zones.py
+let zoneStatus = null;
+let zoneStamp = null;
 let current = null;   // the result shown on the right
 let currentCtx = null;   // and what helps to judge it (data.context)
 let loading = false;
@@ -140,6 +143,7 @@ async function load(append) {
     $('corrInfo').textContent = corrected ? `${totals.raw_defect} → ${totals.defect} defect sets` : '';
     rows = append ? rows.concat(data.rows) : data.rows;
     renderWorker(data.status);
+    loadZones();
     renderFilters();
     renderRows();
     if (!selected && !append && rows.length) showSet(rows[0].id);   // the newest set is shown at first
@@ -173,6 +177,34 @@ const statusChip = (c) => {
 };
 
 const SHOE_TEXT = { on: 'on shoe', off: 'off shoe', unknown: 'unknown' };
+
+// The learned shoe zone of a camera drawn over its picture (the outline, in fractions of the picture)
+function zoneSvg(role) {
+  const z = zones[role];
+  if (!z || !$('showZone').checked) return '';
+  const polys = z.polygons.map((p) => `<polygon points="${p.map((q) => q.join(',')).join(' ')}"/>`).join('');
+  return `<svg class="zone" viewBox="0 0 1 1" preserveAspectRatio="none">${polys}</svg>`;
+}
+
+async function loadZones() {
+  try {
+    zoneStatus = await getJson('/api/predict/zones');
+  } catch (e) {
+    return;
+  }
+  const stamp = zoneStatus.built_at || '';
+  zones = zoneStatus.cameras || {};
+  if (stamp !== zoneStamp) {   // the zones were made (again): the open set shows them
+    zoneStamp = stamp;
+    if (selected && current) showSet(selected);
+  }
+  const info = $('zoneInfo');
+  if (!zoneStatus.enabled) info.textContent = 'Shoe zone: off (ON_PREDICT_ZONE=0)';
+  else if (zoneStatus.building) info.textContent = 'Shoe zone: being made…';
+  else if (!zoneStatus.built_at) info.textContent = `Shoe zone: not made yet (it needs ${zoneStatus.min_sets} results)`;
+  else info.textContent = `Shoe zone: from ${Math.max(...Object.values(zones).map((c) => c.sets), 0)} sets, made ${zoneStatus.built_at.replace('T', ' ')}`;
+  $('zoneBtn').disabled = !!zoneStatus.building || !zoneStatus.enabled;
+}
 const mapChip = (m) => (m ? `<span class="chip ${m.map50 >= 0.5 ? 'ok' : (m.map50 < 0.2 ? 'warn' : '')}" title="Validation mAP50 of the model for this class (${m.instances} objects in the validation pictures)">${m.map50.toFixed(2)}</span>` : '-');
 
 const rank = (role) => (ORDER.indexOf(role) < 0 ? 9 : ORDER.indexOf(role));
@@ -202,7 +234,7 @@ async function showSet(id) {
     const sharp = vc.sharpness == null ? '' : ` · sharp ${Math.round(vc.sharpness)}`;
     const info = v ? `${dets.length} found${sharp} · ${Math.round(v.ms)} ms` : esc(err || 'not predicted');
     return `<div class="pred-cell"><div class="cap"><b>${esc(role)}</b><span>${info}</span></div>
-      <div class="pred-box" data-role="${esc(role)}"><img loading="lazy" alt="" src="${imageUrl(id, role, 'thumb')}">${boxes(dets, vc.detections)}</div></div>`;
+      <div class="pred-box" data-role="${esc(role)}"><img loading="lazy" alt="" src="${imageUrl(id, role, 'thumb')}">${zoneSvg(role)}${boxes(dets, vc.detections)}</div></div>`;
   }).join('');
   const table = all.length
     ? '<div class="card"><h3>Detections</h3><table class="qr-table"><thead><tr><th>Camera</th><th>Class</th><th class="num">Score</th>' +
@@ -212,7 +244,7 @@ async function showSet(id) {
       '<th class="num" title="Validation mAP50 of the model for this class: how well it found this class in its own test pictures">Class mAP50</th>' +
       '<th class="num" title="Sharpness of the picture of this camera (higher = sharper; compare pictures of the same camera)">Sharp</th></tr></thead><tbody>' +
       all.sort((a, b) => b.conf - a.conf).map((d) => `<tr><td>${esc(d.role)}</td><td>${esc(d.class)}${okClasses.includes(d.class) ? ' <span class="chip ok">fine</span>' : ''}</td><td class="num">${d.conf.toFixed(2)}</td>` +
-        `<td><span class="chip ${d.c.on_shoe === 'off' ? 'warn' : (d.c.on_shoe === 'on' ? 'ok' : '')}"${d.c.inside != null ? ` title="${Math.round(d.c.inside * 100)}% of the box is inside the shoe region"` : ''}>${SHOE_TEXT[d.c.on_shoe] || 'unknown'}</span></td>` +
+        `<td><span class="chip ${d.c.on_shoe === 'off' ? 'warn' : (d.c.on_shoe === 'on' ? 'ok' : '')}"${d.c.inside != null ? ` title="${Math.round(d.c.inside * 100)}% of the box is inside the ${d.c.by === 'zone' ? 'learned shoe zone of this camera' : 'shoe region of this picture'}"` : ''}>${SHOE_TEXT[d.c.on_shoe] || 'unknown'}${d.c.by === 'zone' && d.c.on_shoe !== 'unknown' ? ' (zone)' : ''}</span></td>` +
         `<td>${statusChip(d.c)}</td><td class="num">${d.c.recurring == null ? '-' : d.c.recurring}</td>` +
         `<td class="num">${mapChip((ctx.classes || {})[d.class])}</td><td class="num">${d.sharp == null ? '-' : Math.round(d.sharp)}</td></tr>`).join('') +
       '</tbody></table><div class="hint">With the corrections on, a box that does not count (recurring, off the shoe or a fine class) is drawn dashed and dim, and only the others decide DEFECT / OK; "raw" is what the model alone would say. A recurring box can also be a real defect that every shoe has: look at those once. "unknown": no shoe region was stored for that picture (sets saved with ON_PICK_MODE=classic) or it covers most of the picture and is not trusted. Class mAP50 is a property of the model, not of this detection: a low value means the model finds that class badly even in its own tests.</div></div>'
@@ -261,6 +293,16 @@ $('flt').onclick = (e) => {
   load(false);
 };
 $('corr').onchange = () => { corrected = $('corr').checked; load(false); if (selected) showSet(selected); };
+$('showZone').onchange = () => { if (selected) showSet(selected); };
+$('zoneBtn').onclick = async () => {
+  if (!window.confirm('Make the shoe zones again from the latest sets? Do it after a camera was moved, when the latest sets are from the new position.')) return;
+  $('zoneBtn').disabled = true;
+  $('zoneInfo').textContent = 'Shoe zone: being made…';
+  try {
+    await fetch('/api/predict/zones/rebuild', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  } catch (e) { /* the status line below says what is going on */ }
+  loadZones();
+};
 $('saveAll').onclick = () => {
   const n = totals ? totals.matching : 0;
   if (n > 50 && !window.confirm(`Save ${n} sets? Every set takes about a second and some disk space.`)) return;

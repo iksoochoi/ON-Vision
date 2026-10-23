@@ -335,6 +335,15 @@ PREDICT_RECUR_IOU = max(0.1, min(0.95, _env("ON_PREDICT_RECUR_IOU", 0.5, float))
 # this many sets go into one save.
 PREDICT_EXPORT_MAX_SIDE = max(0, _env("ON_PREDICT_EXPORT_MAX_SIDE", 2000, int))
 PREDICT_EXPORT_MAX_SETS = max(1, _env("ON_PREDICT_EXPORT_MAX_SETS", 200, int))
+# The shoe zone of each camera, learned from the saved pictures (storage/zones.py): where a box counts as ON the shoe when the
+# picture has no shoe region of its own. Made from the latest ON_PREDICT_ZONE_SETS sets (at least ON_PREDICT_ZONE_MIN_SETS),
+# again after ON_PREDICT_ZONE_REFRESH_SETS new results; ON_PREDICT_ZONE_THR: how often a pixel must differ from the median
+# picture to belong to the zone (lower = a bigger zone). ON_PREDICT_ZONE=0 switches it off.
+PREDICT_ZONE = _env("ON_PREDICT_ZONE", 1, int) != 0
+PREDICT_ZONE_SETS = max(10, _env("ON_PREDICT_ZONE_SETS", 60, int))
+PREDICT_ZONE_MIN_SETS = max(5, _env("ON_PREDICT_ZONE_MIN_SETS", 20, int))
+PREDICT_ZONE_REFRESH_SETS = max(5, _env("ON_PREDICT_ZONE_REFRESH_SETS", 30, int))
+PREDICT_ZONE_THR = max(0.05, min(0.9, _env("ON_PREDICT_ZONE_THR", 0.30, float)))
 PREDICT_OK_CLASSES = [c.strip() for c in _env("ON_PREDICT_OK_CLASSES", "Print4_poor_print_good").split(",") if c.strip()]
 
 # ---- dataset export (YOLO format) ------------------------------------------

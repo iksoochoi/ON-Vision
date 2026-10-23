@@ -95,7 +95,7 @@ def _set_record(sample_id, corrected, originals, folder, ok_classes, max_side):
             x0, y0, x1, y1 = d["box"]
             dets.append({"class": d["class"], "conf": d["conf"], "box": d["box"],
                          "box_px": [round(x0 * w), round(y0 * h), round(x1 * w), round(y1 * h)],
-                         "on_shoe": c.get("on_shoe"), "inside_shoe": c.get("inside"), "recurring": c.get("recurring"),
+                         "on_shoe": c.get("on_shoe"), "on_shoe_by": c.get("by"), "inside_shoe": c.get("inside"), "recurring": c.get("recurring"),
                          "counts": c.get("counted"), "left_out": c.get("reasons") or [],
                          "class_map50": (metrics.get(d["class"]) or {}).get("map50"), "ctx": c})
         annotated = draw(image, dets, corrected, ok_classes, max_side)

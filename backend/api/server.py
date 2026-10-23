@@ -171,6 +171,8 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, Pr
             self._export(data)
         elif path == "/api/predict/export":
             self._export_predict(data)
+        elif path == "/api/predict/zones/rebuild":
+            self._rebuild_zones()
         elif path == "/api/samples/delete":
             ids = data.get("ids")
             if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and ID_RE.match(i) for i in ids):

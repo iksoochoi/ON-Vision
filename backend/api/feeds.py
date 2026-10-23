@@ -76,6 +76,7 @@ class Feeds(threading.Thread):
             sent.append("qr_scan")
         if now >= self._next["predict"] and events.has_subscribers("predict"):
             self._next["predict"] = now + PREDICT_CHECK_SEC
+            predictions.index.ensure_zones()
             if predictions.index.refresh(force=True):
                 events.broadcast({"key": "predict_changed"})
                 sent.append("predict_changed")

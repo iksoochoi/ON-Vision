@@ -31,6 +31,7 @@ import time
 from ..core.config import (PREDICT_DIR, PREDICT_MODEL, PREDICT_OK_CLASSES, PREDICT_ON_SHOE_MIN, PREDICT_RECUR_IOU,
                            PREDICT_RECUR_MIN, PREDICT_SHOE_MAX_AREA)
 from .paths import time_key
+from .zones import zones
 
 REFRESH_SEC = 1.5
 STATUS_NAME = ".status.json"
@@ -135,7 +136,7 @@ def context(result, meta):
         for i, d in enumerate(v.get("detections", [])):
             f = flags.get((role, i)) or {}
             place, inside = (f["on"], f["inside"]) if f else on_shoe(d["box"], region, area)
-            dets.append({"on_shoe": place, "inside": inside, "recurring": f.get("recurring"),
+            dets.append({"on_shoe": place, "inside": inside, "by": f.get("by", "region"), "recurring": f.get("recurring"),
                          "counted": f.get("counted"), "reasons": f.get("reasons", [])})
             m = metrics.get(d["class"])
             out["classes"][d["class"]] = {"map50": m["map50"], "instances": m["instances"]} if m else None
@@ -196,7 +197,7 @@ class PredictIndex:
         self._checked = 0.0
         self.version = 0
         self._status = None
-        self._analysis = (None, {})   # (version it was made for, id -> corrected summary and per-detection flags)
+        self._analysis = (None, {})   # ((index version, zone version) it was made for, id -> corrected summary and flags)
 
     def _detections(self, result):
         """The detections of a result as a flat list with where they lie (the set's JSON is read only for results
@@ -262,12 +263,36 @@ class PredictIndex:
         self.refresh()
         return dict(self._status or {"alive": False})
 
+    # ---- the shoe zones (zones.py) ---------------------------------------------------------------------------------
+
+    def ids_newest_first(self):
+        with self._lock:
+            return sorted(self._sets, key=lambda s: self._sets[s]["tk"], reverse=True)
+
+    def _make_zones(self, force):
+        from ..core.events import broadcast
+        from .store import store   # late: the store imports this module
+        ids = self.ids_newest_first()
+        if not force and not zones.due(len(ids)):
+            return False
+        return zones.build_async(ids, lambda sid, role: store.view_file(sid, role), lambda used: broadcast({"key": "predict_changed"}))
+
+    def ensure_zones(self):
+        """Start making the shoe zones in the background when it is time (first ones, or after enough new results)."""
+        return self._make_zones(False)
+
+    def rebuild_zones(self):
+        """The Rebuild button: make them again now, from the latest sets (after a camera was moved)."""
+        self.refresh(force=True)
+        return self._make_zones(True)
+
     # ---- the corrections --------------------------------------------------------------------------------------------
 
     def _analyse(self):
         """The corrected verdict of every set and the flags of every detection, made once per version of the index."""
         with self._lock:
-            if self._analysis[0] == self.version:
+            key = (self.version, zones.version)
+            if self._analysis[0] == key:
                 return self._analysis[1]
             flat = [d for s in self._sets.values() for d in s["dets"]]
             recur = _recurrence(flat, PREDICT_RECUR_IOU)
@@ -278,13 +303,18 @@ class PredictIndex:
                 flags, counted = {}, []
                 for d in s["dets"]:
                     reasons = []
+                    on, inside, by = d["on"], d["inside"], "region"
+                    if on == "unknown":   # no shoe region in that picture: the learned zone of the camera, when there is one
+                        z = zones.inside(d["role"], d["box"])
+                        if z is not None:
+                            on, inside, by = ("on" if z >= PREDICT_ON_SHOE_MIN else "off"), round(z, 2), "zone"
                     if d["cls"] in self._ok:
                         reasons.append("fine")
                     if d["recurring"] >= PREDICT_RECUR_MIN:
                         reasons.append("recurring")
-                    if d["on"] == "off":
+                    if on == "off":
                         reasons.append("off shoe")
-                    flags[(d["role"], d["i"])] = {"on": d["on"], "inside": d["inside"], "recurring": d["recurring"],
+                    flags[(d["role"], d["i"])] = {"on": on, "inside": inside, "by": by, "recurring": d["recurring"],
                                                   "counted": not reasons, "reasons": reasons}
                     if not reasons:
                         counted.append(d)

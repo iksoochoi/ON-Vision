@@ -50,6 +50,9 @@
           <label class="corr" title="Also put the pictures as they were saved next to the ones with boxes"><input type="checkbox" id="saveOrig"> with originals</label>
         </div>
         <div class="hint" id="saveMsg" hidden></div>
+        <div class="zonebar"><label class="corr" title="Draw the learned shoe zone of each camera over the pictures"><input type="checkbox" id="showZone" checked> Show shoe zone</label>
+          <button type="button" id="zoneBtn" class="secondary" title="Make the shoe zones again from the latest sets: after a camera was moved">Rebuild</button></div>
+        <div class="hint" id="zoneInfo"></div>
         <label class="corr" title="Detections that recur at the same place in many sets, or lie off the shoe, do not count for the verdict"><input type="checkbox" id="corr" checked> Apply corrections <small id="corrInfo"></small></label>
       </div>
       <div id="rows" class="pred-rows"><div class="empty">Loading…</div></div>

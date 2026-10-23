@@ -4,6 +4,7 @@ from ..core.config import PREDICT_CORRECT
 from ..storage import predictions
 from ..storage.paths import ID_RE
 from ..storage.predict_export import export_predictions
+from ..storage.zones import zones
 from ..storage.store import store
 
 FILTERS = ("all", "defect", "ok", "error")
@@ -11,6 +12,11 @@ MAX_LIMIT = 200
 
 
 class PredictRoutes:
+    def _rebuild_zones(self):
+        """POST /api/predict/zones/rebuild: make the shoe zones again from the latest sets (in the background)."""
+        started = predictions.index.rebuild_zones()
+        self._send_json({"started": bool(started), **zones.status()})
+
     def _export_predict(self, data):
         """POST /api/predict/export. Body: {"ids": [set ids]} or {"filter", "cls", "date"} (the list as the page shows it);
         "corrected": true | false (default: as the server starts), "originals": true | false.
@@ -41,7 +47,11 @@ class PredictRoutes:
     def _get_predict(self, rest, query):
         """/api/predict?filter=all|defect|ok|error&cls=&date=&limit=&offset=&corrected=1|0 -> {"rows", "totals", "status"}
         /api/predict/<id>                                                      -> {"result", "views", "primary"}"""
+        if rest == "zones":
+            self._send_json(zones.status())
+            return
         if not rest:
+            predictions.index.ensure_zones()
             flt = query.get("filter", ["all"])[0]
             try:
                 limit = min(MAX_LIMIT, max(0, int(query.get("limit", ["60"])[0])))
