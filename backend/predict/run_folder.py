@@ -32,10 +32,14 @@ def main():
     ap.add_argument("--no-images", action="store_true", help="write only results.json / results.csv")
     args = ap.parse_args()
 
-    files = engine.find_images(args.folder, args.limit)
+    out = Path(args.out) if args.out else engine.ROOT / "exports" / "predict" / (Path(args.folder).name + time.strftime("_%Y%m%d_%H%M%S"))
+    out_abs = out.resolve()
+    # the results may be written inside the folder that is read (--out): never read them again as input pictures
+    files = [f for f in engine.find_images(args.folder) if out_abs not in f.resolve().parents]
+    if args.limit:
+        files = files[:args.limit]
     if not files:
         sys.exit(f"no pictures under {args.folder}")
-    out = Path(args.out) if args.out else engine.ROOT / "exports" / "predict" / (Path(args.folder).name + time.strftime("_%Y%m%d_%H%M%S"))
     out.mkdir(parents=True, exist_ok=True)
 
     model, device = engine.load(args.model, args.device)

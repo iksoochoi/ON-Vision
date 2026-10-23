@@ -12,6 +12,7 @@ Every code found carries size_px, its side in pixels of the picture it was found
 read is reported through `seen` (sizes in px), so a log or the QR page can say "found, but only 58 px"."""
 
 import threading
+import time
 
 import cv2
 
@@ -21,6 +22,7 @@ MAX_SIDES = (1600, 2800)   # try the image shrunk to this long side, small first
 ROI_SCALES = (1.0, 2.0)    # the search area is tried as it is, then enlarged (small codes)
 ROI_MAX_SIDE = 4200        # an enlarged search area is not made longer than this
 LIVE_ENHANCE_SEC = 0.25    # the most a live scan spends on the extra attempts (enhance.py)
+QUICK_SEC = 0.15           # the most the first, zxing based attempt at a located code takes (see _search)
 
 
 _local = threading.local()  # cv2 detectors are not thread-safe: one set per thread
@@ -79,15 +81,28 @@ def _locate(gray, scales):
     return [_size_px(p) for p in _locate_quads(gray, scales)]
 
 
-def _search(gray, scales, origin, full_wh, seen=None, deep=False):
+def _search(gray, scales, origin, full_wh, seen=None, deep=False, quick=True):
     """Decode `gray` (a part of a picture whose top-left is `origin`, the whole picture being
     `full_wh` = (w, h) pixels) at each scale, each with and without contrast stretching.
     Returns [{"text", "points" (0..1 of the whole picture), "size_px", "method"}] or []. Nothing read: the sizes
     of the codes that could only be located are added to `seen` (a list), when given.
     With ON_QR_ENHANCE the codes that were located but not read get the extra attempts of enhance.py; `deep`
-    (a saved picture) also lets zxing-cpp search a picture in which nothing could be located."""
+    (a saved picture) also lets zxing-cpp search a picture in which nothing could be located. `quick`: the first
+    attempt below (a located code, straightened, read by zxing-cpp); off for the tiles, where it would only cost time."""
     ox, oy = origin
     fw, fh = full_wh
+    quads = None
+    # A code the detector can place is straightened (the label sits on the curved side of the shoe: it is tilted and
+    # a little distorted) and read by zxing-cpp first: it reads such codes the OpenCV reader does not, and it is
+    # quick. What is not read this way goes on to the OpenCV reading below, as before.
+    if quick and C.QR_ENHANCE:
+        from . import enhance
+        if enhance.zxing_ready():
+            quads = _locate_quads(gray, scales)
+            if quads:
+                found = enhance.read_located(gray, quads, origin, full_wh, time.monotonic() + QUICK_SEC)
+                if found:
+                    return found
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     for s in scales:
         g = gray if s == 1.0 else cv2.resize(gray, None, fx=s, fy=s,
@@ -105,7 +120,8 @@ def _search(gray, scales, origin, full_wh, seen=None, deep=False):
                                            for x, y in pts],
                                 "size_px": round(_size_px(pts) / s, 1), "method": "cv"})
                 return out
-    quads = _locate_quads(gray, scales) if (seen is not None or deep) else []
+    if quads is None:
+        quads = _locate_quads(gray, scales) if (seen is not None or deep) else []
     if C.QR_ENHANCE and (quads or deep):
         from . import enhance
         budget = C.QR_ENHANCE_SEC if deep else min(C.QR_ENHANCE_SEC, LIVE_ENHANCE_SEC)
@@ -137,7 +153,7 @@ def decode_qr_tiles(img, grid=3, overlap=0.3, upscale=2):
             x0 = min(w - tw, int(gx * (w - tw) / max(1, grid - 1)))
             tile = cv2.resize(img[y0:y0 + th, x0:x0 + tw], None, fx=upscale, fy=upscale,
                               interpolation=cv2.INTER_CUBIC)
-            found = decode_qr(tile)
+            found = decode_qr(tile, quick=False)
             if found:
                 for code in found:   # tile-relative (0..1) -> whole picture (0..1)
                     code["points"] = [[round((x0 + px * tw) / w, 4), round((y0 + py * th) / h, 4)]
@@ -147,14 +163,14 @@ def decode_qr_tiles(img, grid=3, overlap=0.3, upscale=2):
     return []
 
 
-def decode_qr(img, roi=None, roi_only=False, seen=None, deep=False):
+def decode_qr(img, roi=None, roi_only=False, seen=None, deep=False, quick=True):
     """QR codes in a BGR (or gray) image: [{"text", "points": [[x, y] * 4, normalized 0..1], "size_px"}].
 
     roi = (x, y, w, h) fractions of the picture: that area is searched first, as it is and then
     enlarged (small codes), and, unless roi_only, the whole picture after it. Without roi the whole
     picture is tried shrunk to a long side of MAX_SIDES, small first, then larger, each with and
     without contrast stretching, because small or slightly blurred codes decode at some scales and
-    not at others. `seen`, `deep`: see _search."""
+    not at others. `seen`, `deep`, `quick`: see _search."""
     if img is None or img.size == 0:
         return []
     gray = img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -165,7 +181,7 @@ def decode_qr(img, roi=None, roi_only=False, seen=None, deep=False):
         part = gray[y0:y1, x0:x1]
         scales = [s for s in ROI_SCALES if s == 1.0 or max(part.shape[:2]) * s <= ROI_MAX_SIDE] or [1.0]
         roi_seen = [] if seen is not None else None
-        found = _search(part, scales, (x0, y0), (w, h), roi_seen, deep)
+        found = _search(part, scales, (x0, y0), (w, h), roi_seen, deep, quick)
         if found:
             return found
         if roi_only:
@@ -178,7 +194,7 @@ def decode_qr(img, roi=None, roi_only=False, seen=None, deep=False):
         if s not in scales:
             scales.append(s)
     whole_seen = [] if seen is not None else None
-    found = _search(gray, scales, (0, 0), (w, h), whole_seen, deep and roi is None)   # with a search area the extra work stays there
+    found = _search(gray, scales, (0, 0), (w, h), whole_seen, deep and roi is None, quick)   # with a search area the extra work stays there
     if not found and seen is not None:
         seen.extend(roi_seen or whole_seen)   # a code placed in the search area says the most
     return found

@@ -153,7 +153,7 @@ def choose(slot, center_ts, sample, use_qr, window=None):
                     break
                 tried += 1
                 try:
-                    found = decode_qr(ev["frame"].getCvFrame(), roi=C.QR_ROI)   # the plain reading: fast; the store reads the saved one in full
+                    found = decode_qr(ev["frame"].getCvFrame(), roi=C.QR_ROI, seen=[])   # the quick readings (OpenCV, a located code by zxing); the store reads the saved one in full
                 except Exception:
                     found = []
                 if found:
