@@ -91,12 +91,20 @@ function buildMethods() {
 
 function buildParams() {
   const m = byId[method];
-  $('methodHelp').textContent = m.help || '';
+  const a = m.about || {};
+  const fmt = (t) => esc(t || '').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  $('aboutTitle').textContent = m.label;
+  $('aboutWhat').innerHTML = fmt(a.what);
+  $('aboutRead').innerHTML = fmt(a.read);
+  $('aboutUse').innerHTML = fmt(a.use);
+  const hinted = m.params.filter((p) => p.hint);
+  $('aboutParams').innerHTML = hinted.length ? '<ul>' + hinted.map((p) => `<li><b>${esc(p.label)}</b>: ${esc(p.hint)}</li>`).join('') + '</ul>' : '';
+  $('aboutPDt').hidden = $('aboutParams').hidden = !hinted.length;
   $('params').innerHTML = m.params.map((p) => {
     if (p.type === 'select') {
-      return `<div class="prm"><label>${esc(p.label)}</label><select data-k="${esc(p.key)}">${p.options.map((o) => `<option${o === p.default ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select></div>`;
+      return `<div class="prm" title="${esc(p.hint || '')}"><label>${esc(p.label)}</label><select data-k="${esc(p.key)}">${p.options.map((o) => `<option${o === p.default ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select></div>`;
     }
-    return `<div class="prm"><label>${esc(p.label)}</label><div class="two"><input type="range" data-k="${esc(p.key)}" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.default}">` +
+    return `<div class="prm" title="${esc(p.hint || '')}"><label>${esc(p.label)}</label><div class="two"><input type="range" data-k="${esc(p.key)}" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.default}">` +
       `<input type="number" data-n="${esc(p.key)}" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.default}"></div></div>`;
   }).join('');
   if (camParam()) {   // the zone technique starts with the camera of the picture
@@ -246,7 +254,8 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('lb').hi
     byId = Object.fromEntries(methods.map((m) => [m.id, m]));
     buildMethods();
   } catch (e) {
-    $('methodHelp').textContent = 'Could not load the techniques: ' + e.message;
+    $('aboutTitle').textContent = 'Could not load the techniques';
+    $('aboutWhat').textContent = e.message;
     return;
   }
   await loadSets();

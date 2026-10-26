@@ -27,9 +27,19 @@
 .prm input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
 .prm input[type="number"] { width: 72px; }
 .lab-side input[type="number"] { background: var(--well); border: 1px solid var(--line); border-radius: 8px; padding: 5px 6px; }
-.crop input[type="number"] { width: 58px; }
+.crop .row label { min-width: 0; margin-right: 2px; }
+.crop input[type="number"] { width: 0; flex: 1; min-width: 0; }
 .auto { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px; font-size: 13px; color: var(--dim); cursor: pointer; }
 #applyBtn { width: 100%; }
+.lab-about { margin-bottom: 12px; }
+.lab-about h3 { font-size: 15px; margin-bottom: 8px; }
+.lab-about dl { margin: 0; display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 6px 14px; font-size: 13px; line-height: 1.5; }
+.lab-about dt { color: var(--accent); font-weight: 680; }
+.lab-about dd { margin: 0; color: var(--text); }
+.lab-about dt[hidden], .lab-about dd[hidden] { display: none; }
+.lab-about ul { margin: 0; padding-left: 18px; color: var(--dim); }
+.lab-about code { font-family: var(--mono); font-size: 12px; background: #243026; padding: 1px 5px; border-radius: 5px; }
+@media (max-width: 700px) { .lab-about dl { grid-template-columns: 1fr; } }
 .lab-main { padding: 14px; overflow-y: auto; min-width: 0; }
 .lab-panes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 1200px) { .lab-panes { grid-template-columns: 1fr; } }

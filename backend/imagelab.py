@@ -12,6 +12,7 @@ import time
 import cv2
 import numpy as np
 
+from . import imagelab_about
 from .core import config as C
 
 
@@ -85,6 +86,7 @@ METHODS = [
      "params": [_choice("camera", "Camera", CAMERAS, "left")],
      "help": "The zone the Predict page uses (see Predict > Show shoe zone). It exists after the Predict page made it."},
 ]
+imagelab_about.attach(METHODS)   # what each technique does, how to read it, what it is for here (shown above the pictures)
 BY_ID = {m["id"]: m for m in METHODS}
 
 
