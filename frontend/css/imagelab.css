@@ -33,7 +33,7 @@
 #applyBtn { width: 100%; }
 .lab-about { margin-bottom: 12px; }
 .lab-about h3 { font-size: 15px; margin-bottom: 8px; }
-.lab-about dl { margin: 0; display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 6px 14px; font-size: 13px; line-height: 1.5; }
+.lab-about dl { margin: 0; display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 6px 14px; font-size: 13px; line-height: 1.5; }
 .lab-about dt { color: var(--accent); font-weight: 680; }
 .lab-about dd { margin: 0; color: var(--text); }
 .lab-about dt[hidden], .lab-about dd[hidden] { display: none; }
