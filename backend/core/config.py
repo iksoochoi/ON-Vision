@@ -290,6 +290,10 @@ HEALTH_STATUS_SEC = max(0.0, _env("ON_HEALTH_STATUS_SEC", 60.0, float))
 # manager (launchd KeepAlive) starts it again.
 HEALTH_RESTART_SEC = max(0.0, _env("ON_HEALTH_RESTART_SEC", 60.0, float))
 HEALTH_RESTART_MAX = max(1, _env("ON_HEALTH_RESTART_MAX", 2, int))
+# A camera that does not follow its exposure setting (it dropped out and came back with the default automatic exposure of
+# 30 ms: blurred pictures, no QR codes) gets its settings sent again; when that does not help it is restarted
+# (camera/settings_guard.py). ON_SETTINGS_GUARD=0 switches this off.
+SETTINGS_GUARD = _env("ON_SETTINGS_GUARD", 1, int) != 0
 
 # ---- alerts for failures of the data collection: a Google Chat webhook (backend/health/alerts.py) ------------
 # The webhook URL is a secret (it carries a key and a token): it lives in .env, which is not in git, and is

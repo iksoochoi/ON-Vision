@@ -21,7 +21,7 @@ import time
 import cv2
 import depthai as dai
 
-from ..capture.session import TriggerSession, capture_set
+from ..capture.session import TriggerSession, capture_set, describe_frame
 from ..capture.presence import presence
 from ..capture.sharpness import luma_small
 from ..core import config as C
@@ -30,6 +30,7 @@ from ..core.rotation import rotate_dets, rotate_image, wrap_frame
 from ..core.state import state, state_lock
 from ..detect.background import bg_dets, get_background
 from ..detect.model import poll_detections, msg_ts
+from ..health import collect
 from .controls import (FOCUS_SETTLE_SEC, apply_exposure, apply_focus, apply_isp, apply_lens, isp_setters,
                        lens_position)
 from .device import (KNOWN_DEVICE_RETRY_SEC, KNOWN_DEVICE_TRIES, NOT_FOUND_RETRY_SEC, SLOW_USB, DeviceNotFound,
@@ -37,10 +38,14 @@ from .device import (KNOWN_DEVICE_RETRY_SEC, KNOWN_DEVICE_TRIES, NOT_FOUND_RETRY
 from .overlay import draw_label, draw_overlay
 from .pipeline import build_pipeline
 from .registry import registry
+from .settings_guard import GIVE_UP_AFTER, SettingsGuard
 
 RETRY_SEC = 5
+ESCALATE_EVERY_SEC = 600.0   # a camera that ignores its settings is restarted at most this often
+RESUME_GAP_SEC = 3.0         # pictures that come back after a pause this long: the camera may have lost its settings
 
 _BOOT_LOCK = threading.Lock()   # boot one OAK at a time; simultaneous USB boots are unreliable
+_escalated = {}                 # role -> when its camera was last restarted because it ignored its settings
 
 
 def zoomed_preview(slot):
@@ -67,6 +72,8 @@ def _camera_loop(slot, pipeline, q, stop):
     last_dets = []
     bg_frames = None  # preview frames collected while a background capture is running
     rotation = slot.rotation
+    guard = SettingsGuard() if C.SETTINGS_GUARD else None   # does the camera follow the exposure it was told to use?
+    last_frame = None     # when the last picture came (a pause in the pictures: see RESUME_GAP_SEC)
 
     while not stop.is_set() and pipeline.isRunning():
         if slot.take_restart():
@@ -86,6 +93,20 @@ def _camera_loop(slot, pipeline, q, stop):
         frame = q["full"].tryGet()
         # small luma copies: for the sharpest-frame pick and, on the reference camera, the adjacent shots
         need_gray = C.PICK_BEST or C.PICK_WINDOW_SEC > 0 or (slot.is_trigger and C.ADJACENT)
+        got_frame = frame is not None
+        if got_frame:
+            now = time.monotonic()
+            if last_frame is not None and now - last_frame >= RESUME_GAP_SEC:
+                # The pictures stopped for a while and are back (10-24 12:23: LEFT, 12 s, no restart of the app's camera).
+                # A camera that hiccups like this has come back with its default settings (automatic exposure of 30 ms,
+                # automatic focus ...) without telling anyone: send everything again at once.
+                message = (f"the pictures are back after {now - last_frame:.0f} s: the camera may have lost its settings, "
+                           "sending them again")
+                print(f"[{role}] {message}")
+                collect.emit("CAMERA_SETTINGS_REAPPLIED", "INFO", message, camera=role, alert=False)
+                last_exposure, last_lens = (None, None, None), None
+                last_cam.clear()
+            last_frame = now
         while frame is not None:
             gray = luma_small(frame, rotation) if need_gray else None
             slot.push_frame(msg_ts(frame), wrap_frame(frame, rotation, crop), gray)
@@ -96,11 +117,44 @@ def _camera_loop(slot, pipeline, q, stop):
 
         params = slot.snapshot_params()
         apply_isp(q["control"], setters, params, last_cam)
+        sent_before = last_exposure
         last_exposure = apply_exposure(
             q["control"], params["iso"], params["exposure_ms"], params["ae_limit_ms"],
             last_exposure, role,
         )
         last_lens = apply_lens(q["control"], params["lens_position"], last_lens, role)
+        if guard is not None:
+            if last_exposure != sent_before:
+                guard.sent()   # the pictures need a moment to show the new settings
+            elif got_frame:
+                item = slot.latest()
+                info = describe_frame(item[1]) if item else {}
+                action = guard.check(params, info.get("exposure_us"), info.get("iso"))
+                if action == "resend":
+                    first = guard.resends == 1
+                    message = (f"the camera does not follow its settings ({guard.reason}): sending them again "
+                               f"({guard.resends}/{GIVE_UP_AFTER})")
+                    print(f"[{role}] {message}")
+                    collect.emit("CAMERA_SETTINGS_LOST", "WARNING", message, camera=role, alert=first,
+                                 key=("CAMERA_SETTINGS_LOST", role))
+                    last_exposure, last_lens = (None, None, None), None   # everything goes out again at the next turn
+                    last_cam.clear()
+                elif action == "escalate":
+                    now = time.monotonic()
+                    restart = now - _escalated.get(role, -1e9) >= ESCALATE_EVERY_SEC
+                    message = (f"the camera still ignores its settings after {GIVE_UP_AFTER} tries ({guard.reason}): "
+                               + ("restarting the camera" if restart else "restarted a short while ago, not again"))
+                    print(f"[{role}] {message}")
+                    collect.emit("CAMERA_SETTINGS_IGNORED", "ERROR", message, camera=role,
+                                 key=("CAMERA_SETTINGS_IGNORED", role))
+                    if restart:
+                        _escalated[role] = now
+                        slot.request_restart()
+                elif action == "restored":
+                    message = "the camera follows its settings again"
+                    print(f"[{role}] {message}")
+                    collect.emit("CAMERA_SETTINGS_RESTORED", "INFO", message, camera=role,
+                                 recovers=[("CAMERA_SETTINGS_LOST", role), ("CAMERA_SETTINGS_IGNORED", role)])
 
         is_ref = slot.is_trigger
         bg_detect = is_ref and C.DETECTOR == "background"

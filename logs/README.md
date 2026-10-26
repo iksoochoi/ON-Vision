@@ -27,6 +27,10 @@
 |---|---|---|
 | `CAMERA_STALLED` | 카메라는 ONLINE인데 5초 넘게 사진이 안 옴. 같은 시각에 조용해진 다른 카메라, 모든 카메라의 fps / USB 속도 / 마지막 사진 시각 / Mac 부하가 같이 적힘 | O |
 | `CAMERA_RESTART` | 카메라가 60초(`ON_HEALTH_RESTART_SEC`) 넘게 멎어 그 카메라만 재시작함(몇 번째 시도인지) | O |
+| `CAMERA_SETTINGS_LOST` | 카메라가 설정한 노출을 따르지 않아(예: 수동 8ms인데 사진은 30ms) 설정을 다시 보냄(최대 3번, 처음 한 번만 알림) | O |
+| `CAMERA_SETTINGS_IGNORED` | 3번 다시 보내도 따르지 않아 그 카메라를 재시작함 | O |
+| `CAMERA_SETTINGS_RESTORED` | 카메라가 설정을 다시 따름 | 알린 문제만 |
+| `CAMERA_SETTINGS_REAPPLIED` | 사진이 3초 이상 끊겼다 돌아와 설정을 바로 다시 보냄 | 알리지 않음 |
 | `APP_RESTART` | 카메라 재시작이 통하지 않아(2번 해도 멎음, 또는 재시작한 카메라가 60초 안에 ONLINE이 안 됨) 앱 전체를 종료함(launchd가 다시 시작) | O |
 | `CAMERA_DOWN` | 카메라가 60초 넘게 OFFLINE | O |
 | `CAMERA_FLAPPING` | 10분 안에 3번 OFFLINE이 됨 | O |

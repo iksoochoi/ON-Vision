@@ -34,6 +34,10 @@
 |---|---|---|
 | `CAMERA_STALLED` | 카메라는 ONLINE인데 `ON_HEALTH_STALL_SEC`(5초) 넘게 새 사진이 없음. **같은 시각에 조용해진 다른 카메라**, 모든 카메라의 fps / USB 속도 / 마지막 사진 시각 / Mac 부하가 같이 적힘 | O |
 | `CAMERA_RESTART` | 카메라가 `ON_HEALTH_RESTART_SEC`(60초) 넘게 멎어 **그 카메라만 재시작**함. 몇 번째 시도인지 적힘 | O |
+| `CAMERA_SETTINGS_LOST` | 카메라가 **설정한 노출을 따르지 않음**(예: 수동 8ms인데 사진은 30ms). 끊겼다가 돌아온 카메라가 기본 자동 노출로 돌아간 경우. 설정을 **다시 보냄**(10초 간격, 최대 3번), 처음 한 번만 알림 | O (처음 한 번) |
+| `CAMERA_SETTINGS_IGNORED` | 3번 다시 보내도 카메라가 따르지 않음: **그 카메라를 재시작**함(10분에 한 번까지) | O |
+| `CAMERA_SETTINGS_RESTORED` | 카메라가 설정을 다시 따름 | 알린 문제만 |
+| `CAMERA_SETTINGS_REAPPLIED` | 사진이 3초 이상 끊겼다 돌아와 설정을 바로 다시 보냄 | 알리지 않음 |
 | `APP_RESTART` | 카메라 재시작이 통하지 않아(`ON_HEALTH_RESTART_MAX`(2)번 해도 멎음, 또는 재시작한 카메라가 60초 안에 다시 ONLINE이 되지 않음) **앱 전체를 종료**함(launchd가 다시 시작) | O |
 | `CAMERA_DOWN` | 카메라가 `ON_HEALTH_OFFLINE_SEC`(60초) 넘게 OFFLINE | O |
 | `CAMERA_FLAPPING` | 10분 안에 3번 OFFLINE이 됨 | O |
@@ -107,3 +111,12 @@ curl -X POST -H "Content-Type: application/json; charset=UTF-8" -d '{"text":"ON-
 
 ## 감시 기준 조정
 `ON_HEALTH_STALL_SEC`(기본 5), `ON_HEALTH_OFFLINE_SEC`(60), `ON_HEALTH_INTERVAL_SEC`(2), `ON_HEALTH_STATUS_SEC`(60, 0이면 STATUS 줄 없음). 영상이 잠깐 끊기는 것까지 잡고 싶으면 `ON_HEALTH_STALL_SEC`를 줄이세요.
+
+## 카메라가 설정을 따르지 않을 때 (자동 복구)
+카메라의 노출 설정(수동 노출과 ISO, 또는 자동 노출의 상한)은 바뀔 때와 카메라가 시작할 때 한 번 보냅니다. 카메라가 끊겼다가 돌아오면서 설정이 적용되지 않고 **기본 자동 노출(30ms)** 로 돌아가는 일이 있었습니다(10-24 12:23 LEFT: 2시간 반 동안 번진 사진, 왼발 신발의 QR 전부 못 읽음). 앱은 보낸 설정을 믿고 있어서 아무도 몰랐습니다.
+- 이제 앱이 **사진마다 카메라가 실제로 쓴 노출과 ISO**(프레임에 들어 있음)를 설정과 비교합니다. 수동이면 요청값과 ±25%, 자동 노출에 상한이 있으면 상한의 1.25배를 넘는지 봅니다(상한 없는 자동 노출은 비교할 것이 없어 건드리지 않음).
+- 차이가 **3초** 넘게 이어지면 설정(노출, 초점, 이미지 처리)을 **다시 보냅니다**. 보낸 뒤 4초는 기다리고, 10초 간격으로 최대 3번입니다. `CAMERA_SETTINGS_LOST`가 로그에 남고 처음 한 번만 Chat 알림이 갑니다.
+- 3번 다시 보내도 따르지 않으면 `CAMERA_SETTINGS_IGNORED`(ERROR, 알림)를 남기고 **그 카메라만 재시작**합니다(같은 카메라는 10분에 한 번까지). 다시 따르면 `CAMERA_SETTINGS_RESTORED`가 남습니다.
+- 사진이 3초 이상 끊겼다 돌아오면(예: 10-24 12:23 LEFT, 12초) 카메라가 기본값(자동 노출 30 ms)으로 돌아왔을 수 있으므로, 비교를 기다리지 않고 **노출/초점/ISP를 바로 다시 보냅니다**. `CAMERA_SETTINGS_REAPPLIED`(INFO)만 남고 알림은 없습니다.
+- 끄려면 `.env`에 `ON_SETTINGS_GUARD=0`.
+- 코드: `backend/camera/settings_guard.py`(판단), `backend/camera/worker.py`(카메라 루프에서 호출).
