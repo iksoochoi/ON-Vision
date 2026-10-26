@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ON Data Collector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;560;680&family=Fragment+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/common.css">
+<link rel="stylesheet" href="/css/imagelab.css">
+</head>
+<body>
+<script src="/js/welcome.js"></script>
+  <div class="topbar">
+    <a class="brand-mark" href="/" aria-label="Go to home"><svg width="54" height="54" viewBox="0 0 54 54" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M36.281 11.384c-.056.058-.114.13-.17.188l-2.364 2.41-.057.058c-.057.072-.057.145.014.247a8.331 8.331 0 0 1 1.096 3.309c.257 2.409-.342 4.571-1.822 6.473-1.268 1.625-2.92 2.64-4.899 3.09-.911.204-1.837.218-2.762.117-1.524-.16-2.891-.726-4.116-1.655-1.766-1.335-2.862-3.105-3.318-5.311-.17-.813-.199-1.64-.128-2.453.171-1.901.883-3.585 2.15-5.022 1.21-1.379 2.692-2.278 4.443-2.685a8.03 8.03 0 0 1 2.635-.189 8.5 8.5 0 0 1 3.588 1.147c.142.087.2.029.285-.058l2.35-2.395c.056-.058.113-.13.185-.217l2.889 2.945.001.001Zm-5.342 7.4c.071-2.8-2.093-4.832-4.529-4.905-2.748-.073-4.798 2.25-4.798 4.76 0 2.57 2.122 4.79 4.67 4.746 2.507.03 4.6-2.076 4.656-4.6Zm3.605 19.391c.014 2.351 0 4.717 0 7.068v.32h-4.13v-.29c0-2.468.015-4.935 0-7.403 0-1.291-.44-2.423-1.366-3.323a3.827 3.827 0 0 0-2.208-1.06c-1.11-.16-2.121.117-3.018.799-.898.696-1.424 1.64-1.595 2.757-.086.537-.1 1.089-.1 1.64-.014 2.192 0 4.369 0 6.56v.305h-4.101v-.276c0-2.656-.029-5.326.014-7.982.029-1.408.47-2.743 1.196-3.962 1.21-2.032 2.934-3.338 5.198-3.875a8.414 8.414 0 0 1 2.178-.203c2.265.101 4.201 1.015 5.74 2.742 1.096 1.248 1.794 2.7 2.036 4.369.098.608.155 1.217.155 1.812"/></svg></a>
+    <h1 id="pageTitle">ON Data Collector</h1>
+    <button type="button" id="navToggle" class="secondary" aria-controls="sidenav" aria-expanded="false" aria-label="Expand menu" title="Expand menu"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+    <div class="spacer"></div>
+    <span class="chip" id="enabledChip">-</span>
+  </div>
+  <nav class="sidenav" id="sidenav" aria-label="Pages">
+    <a href="/"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8 12h2l1.2-2.2L13 15l1.2-3H16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Live</span></a>
+    <!-- Label menu is hidden. Uncomment the next line to show it.
+    <a href="/label"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4.5 12.5V5.5h7l8 8-7 7-8-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="8.5" cy="9" r="1.1" fill="currentColor"/></svg><span>Label</span></a>
+    -->
+    <a href="/browse"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="4" y="13" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/></svg><span>Browse</span></a>
+    <a href="/qr"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 4h6v6H4V4zm1.6 1.6v2.8h2.8V5.6H5.6zM14 4h6v6h-6V4zm1.6 1.6v2.8h2.8V5.6h-2.8zM4 14h6v6H4v-6zm1.6 1.6v2.8h2.8v-2.8H5.6zM14 14h2v2h-2zm4 0h2v2h-2zm-4 4h2v2h-2zm2-2h2v2h-2zm2 2h2v2h-2z"/></svg><span>QR</span></a>
+    <a href="/predict"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5l7 3v5c0 4.2-2.9 7.6-7 9.5-4.1-1.9-7-5.3-7-9.5v-5l7-3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2.2 2.2L15.2 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Predict</span></a>
+    <a href="/imagelab" class="current"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h9M17 17h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="15" cy="7" r="2" stroke="currentColor" stroke-width="1.6"/><circle cx="9" cy="12" r="2" stroke="currentColor" stroke-width="1.6"/><circle cx="15" cy="17" r="2" stroke="currentColor" stroke-width="1.6"/></svg><span>Image Lab</span></a>
+  </nav>
+  <div class="tabbar">
+    <span class="tabbar-title">Image Lab</span>
+    <div class="tabbar-status"><span class="chip" id="srcChip">no picture</span></div>
+  </div>
+  <div class="lab-page">
+    <aside class="lab-side">
+      <div class="card">
+        <h3>Picture</h3>
+        <div class="seg" id="srcTabs"><button type="button" data-t="set" class="active">Saved sets</button><button type="button" data-t="upload">Upload</button></div>
+        <div id="setBox">
+          <input type="search" id="setQ" placeholder="Filter by QR value or time">
+          <div id="setList" class="lab-sets"><div class="empty">Loading…</div></div>
+          <button type="button" id="setMore" class="secondary" hidden>Load more</button>
+          <div class="row"><label for="viewSel">Camera</label><select id="viewSel"></select></div>
+        </div>
+        <div id="upBox" hidden>
+          <input type="file" id="upFile" accept="image/*">
+          <div class="row"><label for="upCam">Camera</label><select id="upCam" title="Only the shoe zone technique needs it"></select></div>
+          <div class="hint" id="upInfo">A picture from this computer. It is only read: nothing is saved.</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Technique</h3>
+        <select id="methodSel"></select>
+        <div class="hint" id="methodHelp"></div>
+        <div id="params"></div>
+        <label class="auto"><input type="checkbox" id="auto" checked> Apply when a value changes</label>
+        <button type="button" id="applyBtn">Apply</button>
+      </div>
+      <div class="card">
+        <h3>View</h3>
+        <div class="row"><label for="sizeSel">Show at</label>
+          <select id="sizeSel"><option value="1600">1600 px (fast)</option><option value="1000">1000 px</option><option value="2400">2400 px</option><option value="0">the saved size</option></select></div>
+        <div class="hint">Values with pixels (kernels, lengths) are pixels of the picture shown. Deblur, motion blur check and QR read always work at the saved size.</div>
+        <div class="crop">
+          <div class="row"><label>Crop %</label>
+            <input type="number" id="cx" min="0" max="99" value="0" title="Left"><input type="number" id="cy" min="0" max="99" value="0" title="Top">
+            <input type="number" id="cw" min="1" max="100" value="100" title="Width"><input type="number" id="ch" min="1" max="100" value="100" title="Height"></div>
+          <div class="row"><button type="button" id="cropQr" class="secondary" title="The band the QR reading searches (ON_QR_ROI)">QR band</button><button type="button" id="cropReset" class="secondary">Whole picture</button></div>
+        </div>
+      </div>
+    </aside>
+    <main class="lab-main">
+      <div class="lab-panes">
+        <figure><figcaption><b>Original</b> <span id="origInfo" class="dim"></span></figcaption><div class="lab-img" id="origBox"><img id="origImg" alt="" hidden></div></figure>
+        <figure><figcaption><b>Result</b> <span id="resInfo" class="dim"></span> <a id="dl" class="linkbtn" download="result.jpg" hidden>Download</a></figcaption><div class="lab-img" id="resBox"><img id="resImg" alt="" hidden></div></figure>
+      </div>
+      <div class="card" id="infoCard" hidden><span id="info"></span></div>
+      <div class="hint">Click a picture to see it big (click again: the real size). The result is not saved anywhere.</div>
+    </main>
+  </div>
+  <div class="lightbox" id="lb" hidden>
+    <div class="lb-bar"><span id="lbCaption"></span><button type="button" id="lbClose" class="secondary">Close</button></div>
+    <div class="lab-lbwrap" id="lbWrap"><img id="lbImg" alt=""></div>
+  </div>
+<script>
+(function () {
+  var btn = document.getElementById('navToggle');
+  var open = false;
+  function setNav(next) {
+    open = next;
+    document.body.classList.toggle('nav-open', open);
+    btn.setAttribute('aria-expanded', String(open));
+    var label = open ? 'Collapse menu' : 'Expand menu';
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+  }
+  btn.onclick = function () { setNav(!open); };
+})();
+</script>
+<script src="/js/imagelab.js"></script>
+</body>
+</html>

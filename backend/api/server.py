@@ -17,6 +17,7 @@ from ..storage.paths import ID_RE
 from ..storage.store import store
 from . import feeds
 from .export_routes import ExportRoutes
+from .imagelab_routes import ImageLabRoutes
 from .predict_routes import PredictRoutes
 from .responses import STATIC_FILES, ResponsesMixin
 from .sample_routes import SampleRoutes
@@ -24,7 +25,7 @@ from .state_routes import StateRoutes
 from .stream_routes import StreamRoutes
 
 
-class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, PredictRoutes, StreamRoutes,
+class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, PredictRoutes, ImageLabRoutes, StreamRoutes,
                      BaseHTTPRequestHandler):
     def _route(self):
         parts = urlsplit(self.path)
@@ -94,6 +95,8 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, Pr
             self._send_json(qr_hub.snapshot())
         elif path == "/api/qr/daily":
             self._send_json(store.daily_qr())
+        elif path == "/api/imagelab/methods":
+            self._imagelab_methods()
         elif path == "/api/predict" or path.startswith("/api/predict/"):
             self._get_predict(path[len("/api/predict/"):], query)
         elif path.startswith("/exports/"):
@@ -173,6 +176,10 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, Pr
             self._export_predict(data)
         elif path == "/api/predict/zones/rebuild":
             self._rebuild_zones()
+        elif path == "/api/imagelab/process":
+            self._imagelab_process(data)
+        elif path == "/api/imagelab/upload":
+            self._imagelab_upload(data)
         elif path == "/api/samples/delete":
             ids = data.get("ids")
             if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and ID_RE.match(i) for i in ids):
