@@ -765,8 +765,7 @@ async function refreshState(light) {
     if (firstState) {
       firstState = false;
       const sel = document.getElementById('camTarget');
-      sel.innerHTML = '<option value="all">All cameras</option>'
-        + camOrder.map((r) => `<option value="${r}">${r.toUpperCase()}</option>`).join('');
+      sel.innerHTML = camOrder.map((r) => `<option value="${r}">${r.toUpperCase()}</option>`).join('');
       sel.onchange = () => buildCamControls();
       document.getElementById('camTargetRow').hidden = camOrder.length < 2;
       buildCamControls();
