@@ -18,10 +18,15 @@ let zoneStatus = null;
 let zoneStamp = null;
 let current = null;   // the result shown on the right
 let currentCtx = null;   // and what helps to judge it (data.context)
+const picked = new Set();   // the sets ticked in the list (to delete their results)
 let loading = false;
 let again = false;
 
 const imageUrl = (id, role, kind) => `/api/samples/${encodeURIComponent(id)}/${kind}?view=${encodeURIComponent(role)}`;
+// the picture as the defect model saw it (the shoe cut out, the background grey): only when the result has an outline of the shoe for it
+const hasCut = (view) => !!(view && view.seg && view.seg.found);
+const pictureUrl = (id, role, kind, view) => (($('showCut') && $('showCut').checked && hasCut(view))
+  ? `/api/predict/${encodeURIComponent(id)}/cutout?view=${encodeURIComponent(role)}&kind=${kind}` : imageUrl(id, role, kind));
 
 async function getJson(url) {
   const r = await fetch(url, { cache: 'no-store' });
@@ -120,6 +125,7 @@ function renderRows() {
   } else {
     box.innerHTML = rows.map((r) => `
       <div class="pred-row${r.id === selected ? ' sel' : ''}" data-id="${esc(r.id)}">
+        <input type="checkbox" class="pick" aria-label="Select this set"${picked.has(r.id) ? ' checked' : ''}>
         <img loading="lazy" alt="" src="${imageUrl(r.id, r.defect_views[0] || 'top', 'thumb')}" onerror="this.style.visibility='hidden'">
         <div><div class="t">${esc(r.time.replace('T', ' ').slice(0, 19))}</div>
           <div class="s">${esc(r.shoe_id || 'no QR value')}${r.count ? ' · ' + esc(Object.keys(r.classes).join(', ')) : ''}</div></div>
@@ -127,6 +133,43 @@ function renderRows() {
       </div>`).join('');
   }
   $('moreBtn').hidden = !totals || rows.length >= totals.matching;
+  renderPicked();
+}
+
+function renderPicked() {
+  for (const id of [...picked]) if (!rows.some((r) => r.id === id)) picked.delete(id);   // a set that is not in the list is not selected
+  $('delSel').textContent = picked.size ? `Delete selected (${picked.size})` : 'Delete selected';
+  $('delSel').disabled = !picked.size;
+  $('delAll').disabled = !totals || !totals.all;
+  $('pickAll').checked = rows.length > 0 && picked.size === rows.length;
+}
+
+// Delete: only the RESULTS go (captures/.predict/), the sets and their pictures stay. The worker predicts a set again when
+// it is still recent (ON_PREDICT_MAX_AGE_HOURS, 24 h at first), so deleting also works as "predict again".
+async function deleteResults(body, question, button) {
+  if (!window.confirm(question)) return;
+  const msg = $('saveMsg');
+  button.disabled = true;
+  try {
+    const r = await fetch('/api/predict/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || r.status);
+    picked.clear();
+    if (body.all || (body.ids || []).includes(selected)) {
+      selected = null;
+      $('detail').innerHTML = '<div class="empty">Pick a set on the left.</div>';
+    }
+    msg.hidden = false;
+    msg.className = 'hint savedok';
+    msg.textContent = `Deleted ${data.deleted} result${data.deleted === 1 ? '' : 's'}. Recent sets are predicted again by the worker.`;
+    await load(false);
+  } catch (e) {
+    msg.hidden = false;
+    msg.className = 'hint saveerr';
+    msg.textContent = 'Could not delete: ' + e.message;
+  } finally {
+    renderPicked();
+  }
 }
 
 async function load(append) {
@@ -232,9 +275,10 @@ async function showSet(id) {
     const vc = (ctx.views || {})[role] || {};
     dets.forEach((d, i) => all.push({ role, class: d.class, conf: d.conf, c: (vc.detections || [])[i] || {}, sharp: vc.sharpness }));
     const sharp = vc.sharpness == null ? '' : ` · sharp ${Math.round(vc.sharpness)}`;
-    const info = v ? `${dets.length} found${sharp} · ${Math.round(v.ms)} ms` : esc(err || 'not predicted');
+    const cut = v && v.seg ? (v.seg.found ? ' · bg removed' : ' · no shoe outlined') : '';
+    const info = v ? `${dets.length} found${sharp}${cut} · ${Math.round(v.ms)} ms` : esc(err || 'not predicted');
     return `<div class="pred-cell"><div class="cap"><b>${esc(role)}</b><span>${info}</span></div>
-      <div class="pred-box" data-role="${esc(role)}"><img loading="lazy" alt="" src="${imageUrl(id, role, 'thumb')}">${zoneSvg(role)}${boxes(dets, vc.detections)}</div></div>`;
+      <div class="pred-box" data-role="${esc(role)}"><img loading="lazy" alt="" src="${pictureUrl(id, role, 'thumb', v)}">${zoneSvg(role)}${boxes(dets, vc.detections)}</div></div>`;
   }).join('');
   const table = all.length
     ? '<div class="card"><h3>Detections</h3><table class="qr-table"><thead><tr><th>Camera</th><th>Class</th><th class="num">Score</th>' +
@@ -254,7 +298,8 @@ async function showSet(id) {
     <div class="meta">${esc((res.timestamp || '').replace('T', ' ').slice(0, 19))} · predicted ${esc((res.predicted_at || '').replace('T', ' '))} ·
       ${esc(res.model)} on ${esc(res.device)}, ${res.imgsz}px, score ≥ ${res.conf} · ${res.ms} ms ·
       <a class="linkbtn" style="padding:2px 10px" href="/browse?sample=${encodeURIComponent(id)}">Open in browse</a>
-      · <button type="button" id="saveOne" class="secondary" style="padding:2px 10px" title="Save this set: the pictures with the boxes and a result.json">Save this set</button></div>
+      · <button type="button" id="saveOne" class="secondary" style="padding:2px 10px" title="Save this set: the pictures with the boxes and a result.json">Save this set</button>
+      · <button type="button" id="delOne" class="secondary" style="padding:2px 10px" title="Delete the result of this set (the set and its pictures stay)">Delete result</button></div>
     ${res.error ? `<div class="card">Failed: ${esc(res.error)}</div>` : ''}</div>
     <div class="pred-grid">${cells}</div>${table}`;
 }
@@ -267,12 +312,12 @@ function verdictRow(ctx, res) {
 
 function openLightbox(id, role) {
   const v = current && current.views ? current.views[role] : null;
-  $('lbImg').src = imageUrl(id, role, 'image');
+  $('lbImg').src = pictureUrl(id, role, 'image', v);
   $('lbBox').querySelectorAll('.det').forEach((n) => n.remove());
   const vc = currentCtx && currentCtx.views ? currentCtx.views[role] : null;
   $('lbBox').insertAdjacentHTML('beforeend', boxes(v ? v.detections : [], vc ? vc.detections : null));
   $('lbCaption').textContent = `${role.toUpperCase()} · ${id}`;
-  $('lbOpen').href = imageUrl(id, role, 'image');
+  $('lbOpen').href = pictureUrl(id, role, 'image', v);
   $('lb').hidden = false;
 }
 
@@ -294,6 +339,7 @@ $('flt').onclick = (e) => {
 };
 $('corr').onchange = () => { corrected = $('corr').checked; load(false); if (selected) showSet(selected); };
 $('showZone').onchange = () => { if (selected) showSet(selected); };
+$('showCut').onchange = () => { if (selected) showSet(selected); };
 $('zoneBtn').onclick = async () => {
   if (!window.confirm('Make the shoe zones again from the latest sets? Do it after a camera was moved, when the latest sets are from the new position.')) return;
   $('zoneBtn').disabled = true;
@@ -311,14 +357,30 @@ $('saveAll').onclick = () => {
 $('detail').addEventListener('click', (e) => {
   const b = e.target.closest('#saveOne');
   if (b && selected) saveSets({ ids: [selected] }, b);
+  const d = e.target.closest('#delOne');
+  if (d && selected) deleteResults({ ids: [selected] }, 'Delete the result of this set? The set and its pictures stay.', d);
 });
 $('dateSel').onchange = () => load(false);
 $('clsSel').onchange = () => load(false);
 $('moreBtn').onclick = () => load(true);
 $('rows').onclick = (e) => {
   const row = e.target.closest('.pred-row');
-  if (row) showSet(row.dataset.id);
+  if (!row) return;
+  if (e.target.classList.contains('pick')) {   // the tick box: select for deleting, do not open the set
+    if (e.target.checked) picked.add(row.dataset.id); else picked.delete(row.dataset.id);
+    renderPicked();
+    return;
+  }
+  showSet(row.dataset.id);
 };
+$('pickAll').onchange = () => {
+  rows.forEach((r) => { if ($('pickAll').checked) picked.add(r.id); else picked.delete(r.id); });
+  renderRows();
+};
+$('delSel').onclick = () => deleteResults({ ids: [...picked] },
+  `Delete the results of ${picked.size} set${picked.size === 1 ? '' : 's'}? The sets and their pictures stay. The worker predicts sets that are not older than its age limit again.`, $('delSel'));
+$('delAll').onclick = () => deleteResults({ all: true },
+  `Delete the results of ALL ${totals ? totals.all : ''} sets? The sets and their pictures stay. The worker predicts the recent ones again (ON_PREDICT_MAX_AGE_HOURS, 24 hours at first); older sets stay without a result until the worker is run with --backfill.`, $('delAll'));
 $('detail').onclick = (e) => {
   const box = e.target.closest('.pred-box[data-role]');
   if (box) openLightbox($('detail').dataset.id, box.dataset.role);

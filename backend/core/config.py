@@ -322,6 +322,14 @@ PREDICT_CONF = max(0.01, min(0.99, _env("ON_PREDICT_CONF", 0.25, float)))   # mi
 PREDICT_THREADS = max(1, _env("ON_PREDICT_THREADS", 2, int))         # torch CPU threads (the GPU does the work on a Mac)
 PREDICT_MAX_AGE_HOURS = max(0.0, _env("ON_PREDICT_MAX_AGE_HOURS", 24.0, float))   # older sets are not predicted (0 = no limit)
 PREDICT_MAX_BACKLOG = max(1, _env("ON_PREDICT_MAX_BACKLOG", 100, int))   # more waiting than this: the OLDEST are left out
+# Before the defect model every picture goes through the shoe segmentation model: the background (belt, rails, the last and the
+# holder) is replaced by flat grey, the defect model sees the shoe only. ON_PREDICT_SEG=0 predicts the pictures as they were saved.
+PREDICT_SEG = _env("ON_PREDICT_SEG", 1, int) != 0
+PREDICT_SEG_MODEL = _path("ON_PREDICT_SEG_MODEL", "backend/models/shoe_segmentation/best.pt")
+PREDICT_SEG_IMGSZ = max(32, _env("ON_PREDICT_SEG_IMGSZ", 960, int))   # the segmentation model was trained at 960
+PREDICT_SEG_CONF = max(0.01, min(0.99, _env("ON_PREDICT_SEG_CONF", 0.5, float)))   # minimum score of the shoe
+# the mask is widened by this part of the picture's long side (0.002 = 8 px of a 4000 px picture) so that the edge of the shoe is kept
+PREDICT_SEG_GROW = max(0.0, min(0.02, _env("ON_PREDICT_SEG_GROW", 0.002, float)))
 # Detections of these classes mean "fine", not "defect" (the model has a class for a good print)
 # What the Predict page shows next to a detection (computed when a set is opened, nothing is predicted again):
 # a box counts as ON the shoe when this part of it lies inside the shoe region of its picture ...

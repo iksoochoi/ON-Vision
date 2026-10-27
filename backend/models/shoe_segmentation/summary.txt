@@ -1,0 +1,15 @@
+Shoe segmentation model (best.pt): YOLO11n-seg, one class "shoe", all five cameras in one model.
+Made on the PC in train/shoe_segmentation (not in git): 80 epochs, imgsz 960, RTX 4060, about 7.5 minutes.
+
+Train: 220 pictures of 2026-10-24 (SAM masks from a box / points hint, the last and the holder cut out, 80 wrong masks left out by hand).
+       top 25, back 44, left 56, front 54, right 41.
+Val:   44 hand-checked pictures (labels/ of the work folder, the mask without the 15 px margin): top 4, back 10, left 10, front 10, right 10.
+       The shoe passes of Val are not in Train.
+Result on Val: mask mAP50 0.995, mAP50-95 0.943; IoU with the hand mask 0.958 on average
+       (front 0.973, right 0.958, left 0.956, back 0.952, top 0.943); 14 ms per picture on an RTX 4060.
+
+Not seen yet: other days, other exposure settings (the 2026-10-24 TOP/BACK/FRONT pictures were taken with 30 ms exposure), other shoe models.
+Mask = the shoe (upper + sole) without the last (teal), the metal holder and the belt.
+
+yolo11n-seg.pt in this folder is the general starting model of Ultralytics (80 COCO classes), NOT this model: it is not used.
+Ultralytics is AGPL-3.0 licensed (see backend/predict/requirements.txt).

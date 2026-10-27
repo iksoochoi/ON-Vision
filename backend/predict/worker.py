@@ -5,7 +5,9 @@
     python -m backend.predict.worker --backfill predict every set without a result, however old
 
 It looks at captures/.sets/ for sets that have no result yet in captures/.predict/, newest first, waits until a
-set is complete, predicts its pictures (one per camera) and writes captures/.predict/<id>.json. The camera app never
+set is complete, predicts its pictures (one per camera) and writes captures/.predict/<id>.json. Every picture goes
+through two models: the shoe segmentation (backend/models/shoe_segmentation) cuts the shoe out and the background is replaced
+by flat grey, then the defect model looks at that picture (ON_PREDICT_SEG=0: at the picture as it was saved). The camera app never
 waits for it and never imports it: a slow or crashed worker cannot disturb the data collection. It runs at a low
 priority, with few CPU threads (the GPU does the work on a Mac), and a backlog is never worked off at the cost of the
 new sets: only the newest ON_PREDICT_MAX_BACKLOG waiting sets within ON_PREDICT_MAX_AGE_HOURS are considered."""
@@ -22,10 +24,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))   # also runnable as a plain file
 
 from backend.core import config as C  # noqa: E402
-from backend.storage import predictions  # noqa: E402
+from backend.storage import cutout, predictions  # noqa: E402
 from backend.storage.paths import ID_RE, image_path, primary_role, time_key  # noqa: E402
 
 POLL_SEC = 2.0
+SEG_NAME = f"{C.PREDICT_SEG_MODEL.parent.name}/{C.PREDICT_SEG_MODEL.name}"   # both model files are called best.pt: say which
 SETTLE_SEC = 1.5       # a set file must be this old: the app writes the pictures first, but be sure
 INCOMPLETE_SEC = 30.0  # pictures still missing after this long: predict what exists
 STATUS_EVERY_SEC = 5.0
@@ -77,12 +80,13 @@ def load_set(stem):
         return None
 
 
-def predict_set(meta, model, device, engine, cv2):
-    """Predict the pictures of one set. Returns the result dict (see storage/predictions.py)."""
+def predict_set(meta, model, device, engine, cv2, seg=None):
+    """Predict the pictures of one set. `seg`: (segmentation model, its device, the segment module) or None.
+    Returns the result dict (see storage/predictions.py)."""
     sid = meta["id"]
     primary = primary_role(meta)
     started = time.perf_counter()
-    views, errors = {}, {}
+    views, errors, seg_errors = {}, {}, {}
     for role in list(meta.get("views") or [primary]):
         path = image_path(sid, role, primary=role == primary)
         image = cv2.imread(str(path)) if path.exists() else None
@@ -90,13 +94,28 @@ def predict_set(meta, model, device, engine, cv2):
             errors[role] = "picture missing" if not path.exists() else "picture cannot be read"
             continue
         h, w = image.shape[:2]
-        res = engine.predict(model, device, image, C.PREDICT_IMGSZ, C.PREDICT_CONF)
+        found, look = None, image
+        if seg is not None:
+            try:
+                found = seg[2].predict(seg[0], seg[1], image, C.PREDICT_SEG_IMGSZ, C.PREDICT_SEG_CONF)
+            except Exception as e:   # a picture the segmentation could not do is predicted as it is
+                seg_errors[role] = f"{type(e).__name__}: {e}"
+            if found and found["found"]:
+                look = cutout.cutout(image, found["polygon"], C.PREDICT_SEG_GROW)
+        res = engine.predict(model, device, look, C.PREDICT_IMGSZ, C.PREDICT_CONF)
         info = (meta.get("views") or {}).get(role) if isinstance((meta.get("views") or {}).get(role), dict) else {}
         shoe = (info.get("pick") or {}).get("shoe")   # the shoe region of this picture (sets saved with ON_PICK_MODE=best)
-        views[role] = {"ms": res["ms"], "sharpness": info.get("sharpness"), "shoe": shoe, "detections": [
+        views[role] = {"ms": round(res["ms"] + (found["ms"] if found else 0), 1), "sharpness": info.get("sharpness"), "shoe": shoe,
+                       "detections": [
             {"class": d["class"], "conf": d["conf"],
              "box": [round(d["box"][0] / w, 4), round(d["box"][1] / h, 4), round(d["box"][2] / w, 4), round(d["box"][3] / h, 4)]}
             for d in res["detections"]]}
+        if found is not None:
+            views[role]["seg"] = ({"found": True, "conf": found["conf"], "count": found["count"], "area": found["area"],
+                                   "ms": found["ms"], "polygon": found["polygon"]} if found["found"]
+                                  else {"found": False, "count": found["count"], "ms": found["ms"]})
+            if found["found"]:   # the outline of the shoe is a better "shoe region" than the one of the camera app
+                views[role]["shoe"] = {"area": found["area"], "box": found["box"]}
     dets = [d for v in views.values() for d in v["detections"]]
     classes = {}
     for d in dets:
@@ -107,6 +126,11 @@ def predict_set(meta, model, device, engine, cv2):
               "ms": round((time.perf_counter() - started) * 1000),
               "defect": predictions.is_defect(dets, C.PREDICT_OK_CLASSES) if views else None,
               "count": len(dets), "classes": classes, "views": views}
+    if seg is not None:
+        result["seg"] = {"model": SEG_NAME, "imgsz": C.PREDICT_SEG_IMGSZ, "conf": C.PREDICT_SEG_CONF,
+                         "grow": C.PREDICT_SEG_GROW, "background_removed": [r for r, v in views.items() if (v.get("seg") or {}).get("found")]}
+        if seg_errors:
+            result["seg"]["errors"] = seg_errors
     if errors:
         result["errors"] = errors
     if not views:
@@ -133,6 +157,23 @@ def main():
     C.PREDICT_DIR.mkdir(parents=True, exist_ok=True)
     model, device = engine.load(C.PREDICT_MODEL, C.PREDICT_DEVICE)
     engine.predict(model, device, np.zeros((64, 64, 3), np.uint8), C.PREDICT_IMGSZ, C.PREDICT_CONF)   # warm-up: the first prediction is slow
+    seg = None
+    if C.PREDICT_SEG:
+        from backend.predict import segment
+        if not C.PREDICT_SEG_MODEL.exists():
+            log(f"WARNING: segmentation model not found ({C.PREDICT_SEG_MODEL}): the pictures are predicted as they were saved")
+        else:
+            seg_model, seg_device = segment.load(C.PREDICT_SEG_MODEL, C.PREDICT_DEVICE)
+            blank = np.zeros((64, 64, 3), np.uint8)
+            try:
+                segment.predict(seg_model, seg_device, blank, C.PREDICT_SEG_IMGSZ, C.PREDICT_SEG_CONF)   # warm-up
+            except Exception as e:   # e.g. a device that cannot do this model: the processor does it
+                log(f"segmentation on {seg_device} failed ({type(e).__name__}: {e}): using the cpu for it")
+                seg_model, seg_device = segment.load(C.PREDICT_SEG_MODEL, "cpu")
+                segment.predict(seg_model, seg_device, blank, C.PREDICT_SEG_IMGSZ, C.PREDICT_SEG_CONF)
+            seg = (seg_model, seg_device, segment)
+    log("background removal: " + (f"ON, {SEG_NAME} on {seg[1]}, imgsz {C.PREDICT_SEG_IMGSZ}, conf {C.PREDICT_SEG_CONF}, "
+                                 f"grow {C.PREDICT_SEG_GROW}" if seg else "off"))
     log(f"started: model {C.PREDICT_MODEL.name}, device {device}, imgsz {C.PREDICT_IMGSZ}, conf {C.PREDICT_CONF}, "
         f"threads {C.PREDICT_THREADS}, ok classes {C.PREDICT_OK_CLASSES}")
 
@@ -155,7 +196,7 @@ def main():
             if meta is None or "id" not in meta:
                 continue
             try:
-                result = predict_set(meta, model, device, engine, cv2)
+                result = predict_set(meta, model, device, engine, cv2, seg)
             except Exception as e:   # one bad set must not stop the worker: it gets an error result and is not retried
                 log(f"{stem} failed: {type(e).__name__}: {e}\n{traceback.format_exc()}")
                 result = {"id": meta["id"], "timestamp": meta.get("timestamp"), "shoe_id": meta.get("shoe_id"),
@@ -171,7 +212,9 @@ def main():
                 "DEFECT " + ", ".join(f"{k} x{v}" for k, v in result["classes"].items() if k not in C.PREDICT_OK_CLASSES)
                 if result["defect"] else "ok" + (f" ({', '.join(result['classes'])})" if result["classes"] else ""))
             log(f"{result['id']}: {result['ms']} ms, {result['count']} detections, {tag}"
-                + (f", pictures missing: {', '.join(result['errors'])}" if result.get("errors") else ""))
+                + (f", shoe cut out in {len(result['seg']['background_removed'])} of {len(result['views'])} pictures" if result.get("seg") else "")
+                + (f", pictures missing: {', '.join(result['errors'])}" if result.get("errors") else "")
+                + (f", segmentation failed: {', '.join(result['seg']['errors'])}" if (result.get("seg") or {}).get("errors") else ""))
             if time.time() - last_status >= STATUS_EVERY_SEC:
                 break   # look at the waiting list again (newer sets come first) and write the status
         now = time.time()
@@ -180,6 +223,7 @@ def main():
             pending, _ = waiting(*limits)
             predictions.write_status({
                 "pid": os.getpid(), "ts": now, "started": started, "device": device, "model": C.PREDICT_MODEL.name,
+                "seg_model": SEG_NAME if seg else None,
                 "imgsz": C.PREDICT_IMGSZ, "processed": stats["processed"], "failed": stats["failed"],
                 "pending": len(pending), "last_id": stats["last_id"], "last_ms": stats["last_ms"],
                 "avg_ms": round(stats["total_ms"] / stats["processed"]) if stats["processed"] else None})

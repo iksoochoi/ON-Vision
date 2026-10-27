@@ -3,7 +3,11 @@
 
     {"id", "timestamp", "shoe_id", "model", "device", "imgsz", "conf", "predicted_at", "ms",
      "defect": true | false | null (null = could not be predicted), "count", "classes": {name: n},
-     "views": {role: {"ms", "sharpness", "shoe": {"area", "box"} (the shoe region of the picture, when the set has one),
+     "seg": {"model", "imgsz", "conf", "grow", "background_removed": [cameras], "errors": {camera: reason}} (when the shoe
+             segmentation ran: the defect model then saw the shoe on a flat grey background, see storage/cutout.py),
+     "views": {role: {"ms", "sharpness", "shoe": {"area", "box"} (the shoe region of the picture: the outline's box when the
+                      shoe was segmented, else the one of the camera app, when the set has one),
+                      "seg": {"found", "conf", "count", "area", "ms", "polygon": [[x, y] ...] fractions} (the outline of the shoe),
                       "detections": [{"class", "conf", "box": [x0, y0, x1, y1] as fractions of the picture}]}},
      "errors": {role: reason}, "error": reason (the whole set failed)}
 "defect" there is the RAW verdict of the model (any detection of a class that is not an ok class). The Predict page
@@ -30,7 +34,7 @@ import time
 
 from ..core.config import (PREDICT_DIR, PREDICT_MODEL, PREDICT_OK_CLASSES, PREDICT_ON_SHOE_MIN, PREDICT_RECUR_IOU,
                            PREDICT_RECUR_MIN, PREDICT_SHOE_MAX_AREA)
-from .paths import time_key
+from .paths import ID_RE, time_key
 from .zones import zones
 
 REFRESH_SEC = 1.5
@@ -53,6 +57,28 @@ def _write_json(path, obj):
 
 def write_result(result):
     _write_json(result_path(result["id"]), result)
+
+
+def delete_results(sample_ids=None):
+    """Delete the defect detection results of these sets (None = every result). The sets and their pictures stay. Returns how
+    many results were deleted. The worker predicts a set again when its picture is still there and the set is not older than
+    ON_PREDICT_MAX_AGE_HOURS."""
+    if sample_ids is None:
+        try:
+            sample_ids = [e.name[:-5] for e in os.scandir(PREDICT_DIR) if e.name.endswith(".json") and ID_RE.match(e.name[:-5])]
+        except OSError:
+            sample_ids = []
+    deleted = []
+    for sid in dict.fromkeys(sample_ids):
+        if not ID_RE.match(sid):
+            continue
+        try:
+            result_path(sid).unlink()
+            deleted.append(sid)
+        except OSError:
+            pass
+    index.remove(deleted)   # the index makes the analysis (corrections) again
+    return len(deleted)
 
 
 def read_result(sample_id):

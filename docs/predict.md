@@ -2,6 +2,20 @@
 
 저장된 신발 한 켤레(사진 5장)마다 불량 탐지 모델을 돌려서 결과를 **웹 화면의 Predict 메뉴**에서 봅니다. 모델은 `backend/models/defect_detection/best.pt`(YOLO11l, 분사/인쇄 불량 PoC 데이터로 학습, 검증 mAP50 0.31)입니다. 신발 사진용으로 학습한 모델이 아니므로 **개념 검증용**입니다. 박스는 시험 결과로 보고, 판정으로 쓰지 마세요.
 
+## 불량 검출 과정 (신발 배경 제거 → 불량 모델)
+```
+1. 데이터 수집      카메라 5대에서 사진 1장씩 저장 (카메라 앱)
+2. 신발 분할        shoe segmentation 모델이 신발만 윤곽을 땁니다 (신발 틀·홀더·벨트 제외),
+                    윤곽 밖은 균일한 회색(114)으로 바꾼 "배경 제거 사진"을 만듭니다
+3. 불량 검출        배경 제거 사진에 defect_detection 모델을 적용합니다
+```
+- 분할 모델: `backend/models/shoe_segmentation/best.pt`(YOLO11n-seg, 클래스 `shoe` 1개, 5대 카메라를 한 모델로 학습: 학습 220장, 손 검수 라벨 44장으로 검증, 마스크 mAP50-95 0.943). 정보는 같은 폴더의 `summary.txt`. (그 폴더의 `yolo11n-seg.pt`는 학습 전 범용 모델이라 쓰지 않습니다.)
+- 마스크는 `ON_PREDICT_SEG_GROW`(기본 사진 긴 변의 0.2%, 4000px 사진에서 약 8px)만큼 넓혀서 신발 가장자리를 지키고, 신발을 못 찾은 사진(`seg.found=false`)은 **원래 사진 그대로** 불량 검출합니다.
+- 결과 JSON의 카메라별 `seg`에 신발 윤곽(0~1 비율의 다각형), 신뢰도, 개수가 들어 있습니다. `views.<카메라>.shoe`(박스가 신발 위인지 보는 영역)도 이 윤곽의 박스로 바뀌어서, 이전에 카메라 앱의 영역이 없던(BACK/FRONT) 사진도 "신발 위/밖" 판정이 됩니다.
+- Predict 화면의 **Show background removed** 를 켜면 사진을 불량 모델이 본 모습(배경 제거)으로 바꿔 보여 줍니다. 사진 파일을 따로 저장하지 않고 저장된 윤곽으로 그때그때 만듭니다(`/api/predict/<id>/cutout`).
+- 끄려면 `ON_PREDICT_SEG=0`(저장된 그대로 검사). 모델 파일이 없으면 워커가 경고를 남기고 같은 방식으로 동작합니다.
+- 알아둘 점: 불량 모델은 배경이 있는 사진으로 학습했습니다. 배경 제거 사진에서는 배경에서 생기던 박스가 크게 줄지만(시험 3세트: 세트당 22~24개 → 3~7개), 실제 불량을 놓치는지는 재학습 전까지 확인이 필요합니다. 비교는 `run_folder.py`로 `--seg` 유무를 나눠 돌려 볼 수 있습니다.
+
 ## 수집에 미치는 영향이 없게 한 구조
 ```
 카메라 앱 (backend.main) ── 사진 5장 + captures/.sets/<id>.json 저장
@@ -72,8 +86,17 @@ exports/predict_20261023_110500.zip
 - 박스 좌표 `box_px`는 **원본 사진의 픽셀**이라, 줄인 사진이 아니라 `original`이나 원래 저장된 사진에 그대로 맞습니다.
 - 세트마다 사진 읽기와 그리기에 1초쯤 걸립니다(사진 5장). 저장 중에는 버튼이 `Saving…`으로 바뀝니다. 예측 결과가 없는 세트나 사진이 없는 카메라는 건너뛰고 이유를 `manifest.json`에 남깁니다.
 
+## 결과 지우기 (Delete)
+Predict 화면에서 **불량 탐지 결과만** 지웁니다. 세트와 사진은 그대로 남습니다(`captures/.predict/<id>.json`만 삭제).
+- **선택 삭제**: 목록 왼쪽 체크박스로 세트를 고르고(**select shown**: 보이는 것 모두) **Delete selected**. 체크박스를 눌러도 세트가 열리지는 않습니다.
+- **한 세트**: 세트를 열었을 때 위쪽의 **Delete result**.
+- **전체 삭제**: **Delete all results**. 확인 창이 한 번 뜹니다.
+- 지우면 워커가 **최근 세트(`ON_PREDICT_MAX_AGE_HOURS`, 24시간 이내)는 다시 예측**합니다. 그래서 설정이나 모델을 바꾼 뒤 "다시 예측"하는 용도로도 씁니다. 더 오래된 세트는 결과 없이 남고, 모두 다시 하려면 `python -m backend.predict.worker --backfill`을 씁니다.
+- API: `POST /api/predict/delete` 본문 `{"ids": [세트 id, ...]}` 또는 `{"all": true}` → `{"deleted": n}`.
+- 세트 자체를 지우면(Browse 삭제) 결과도 함께 지워집니다(원래 동작).
+
 ## 결과 파일
-`captures/.predict/<세트 id>.json` (워커가 쓰고 앱은 읽기만): `defect`(true/false/null, **모델의 원래 판정**. 보정 판정은 화면이 계산), `count`, `classes`, 카메라별 `detections`(상자는 사진 크기에 대한 0~1 비율), `ms`, 모델·장치·입력 크기·점수 기준. `.status.json`은 워커 상태입니다. 세트를 지우면(웹 삭제, `capture_backup.sh`의 백업/삭제) **결과도 함께** 지워지고, 백업 zip에도 같이 들어갑니다.
+`captures/.predict/<세트 id>.json` (워커가 쓰고 앱은 읽기만): `defect`(true/false/null, **모델의 원래 판정**. 보정 판정은 화면이 계산), `count`, `classes`, 카메라별 `detections`(상자는 사진 크기에 대한 0~1 비율), `ms`, 모델·장치·입력 크기·점수 기준. 카메라별 `seg`(신발 윤곽 다각형·신뢰도·개수), 세트 `seg`(분할 모델 정보와 배경이 제거된 카메라 목록). `.status.json`은 워커 상태입니다. 세트를 지우면(웹 삭제, `capture_backup.sh`의 백업/삭제) **결과도 함께** 지워지고, 백업 zip에도 같이 들어갑니다.
 
 ## 설정 (`.env`, 워커가 읽음)
 | 키 | 기본 | 뜻 |
@@ -82,6 +105,11 @@ exports/predict_20261023_110500.zip
 | `ON_PREDICT_DEVICE` | `auto` | `auto`(mps → cuda → cpu) / `cpu` / `mps` / `0` |
 | `ON_PREDICT_IMGSZ` | `1280` | 입력 크기(학습 때와 같음). 줄이면 빨라지고 작은 결함은 놓칠 수 있음 |
 | `ON_PREDICT_CONF` | `0.25` | 검출 최소 점수 |
+| `ON_PREDICT_SEG` | `1` | 신발 배경 제거 후 불량 검출 (0 = 저장된 사진 그대로) |
+| `ON_PREDICT_SEG_MODEL` | `backend/models/shoe_segmentation/best.pt` | 신발 분할 모델 파일 |
+| `ON_PREDICT_SEG_IMGSZ` | `960` | 분할 모델 입력 크기(학습 때와 같음) |
+| `ON_PREDICT_SEG_CONF` | `0.5` | 신발로 인정하는 최소 점수 |
+| `ON_PREDICT_SEG_GROW` | `0.002` | 윤곽을 사진 긴 변의 이 비율만큼 넓힘(0.002 = 4000px에서 8px) |
 | `ON_PREDICT_THREADS` | `2` | torch CPU 스레드 수 |
 | `ON_PREDICT_MAX_AGE_HOURS` | `24` | 이보다 오래된 세트는 안 함(0 = 제한 없음) |
 | `ON_PREDICT_MAX_BACKLOG` | `100` | 밀리면 최신 이 개수만, 오래된 것은 건너뜀 |

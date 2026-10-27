@@ -1,7 +1,10 @@
 """Routes of the Predict page: the defect detection results the worker (backend/predict/worker.py) wrote."""
 
-from ..core.config import PREDICT_CORRECT
-from ..storage import predictions
+import cv2
+
+from ..core.config import PREDICT_CORRECT, PREDICT_SEG_GROW
+from ..core.events import broadcast
+from ..storage import cutout, predictions
 from ..storage.paths import ID_RE
 from ..storage.predict_export import export_predictions
 from ..storage.zones import zones
@@ -16,6 +19,21 @@ class PredictRoutes:
         """POST /api/predict/zones/rebuild: make the shoe zones again from the latest sets (in the background)."""
         started = predictions.index.rebuild_zones()
         self._send_json({"started": bool(started), **zones.status()})
+
+    def _delete_predict(self, data):
+        """POST /api/predict/delete. Body: {"ids": [set ids]} (these results) or {"all": true} (every result).
+        Only the results go; the sets and their pictures stay. -> {"deleted": n}"""
+        ids = data.get("ids")
+        if data.get("all") is True and ids is None:
+            n = predictions.delete_results(None)
+        elif isinstance(ids, list) and ids and len(ids) <= 5000 and all(isinstance(i, str) and ID_RE.match(i) for i in ids):
+            n = predictions.delete_results(ids)
+        else:
+            self.send_error(400, 'ids: a list of set ids, or {"all": true}')
+            return
+        if n:
+            broadcast({"key": "predict_changed"})
+        self._send_json({"deleted": n})
 
     def _export_predict(self, data):
         """POST /api/predict/export. Body: {"ids": [set ids]} or {"filter", "cls", "date"} (the list as the page shows it);
@@ -44,11 +62,44 @@ class PredictRoutes:
             return
         self._send_json(result)
 
+    def _send_cutout(self, sample_id, query):
+        """GET /api/predict/<id>/cutout?view=<camera>&kind=thumb|image: the picture with the background removed, as the
+        defect model saw it (made from the outline stored in the result; nothing is stored)."""
+        role = query.get("view", [""])[0]
+        thumb = query.get("kind", ["image"])[0] == "thumb"
+        result = predictions.read_result(sample_id) if ID_RE.match(sample_id) else None
+        seg = (((result or {}).get("views") or {}).get(role) or {}).get("seg")
+        if not seg or not seg.get("found"):
+            self.send_error(404, "no outline for this picture")
+            return
+        path = store.view_file(sample_id, role, thumb=thumb)
+        image = cv2.imread(str(path)) if path is not None else None
+        if image is None:
+            self.send_error(404)
+            return
+        grow = ((result.get("seg") or {}).get("grow"))
+        ok, data = cv2.imencode(".jpg", cutout.cutout(image, seg["polygon"], PREDICT_SEG_GROW if grow is None else grow),
+                                [cv2.IMWRITE_JPEG_QUALITY, 88 if thumb else 92])
+        if not ok:
+            self.send_error(500)
+            return
+        data = data.tobytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "private, max-age=300")
+        self.end_headers()
+        self.wfile.write(data)
+
     def _get_predict(self, rest, query):
         """/api/predict?filter=all|defect|ok|error&cls=&date=&limit=&offset=&corrected=1|0 -> {"rows", "totals", "status"}
-        /api/predict/<id>                                                      -> {"result", "views", "primary"}"""
+        /api/predict/<id>                                                      -> {"result", "views", "primary"}
+        /api/predict/<id>/cutout?view=<camera>&kind=thumb|image                -> the picture with the background removed (JPEG)"""
         if rest == "zones":
             self._send_json(zones.status())
+            return
+        if rest.endswith("/cutout"):
+            self._send_cutout(rest[:-len("/cutout")], query)
             return
         if not rest:
             predictions.index.ensure_zones()

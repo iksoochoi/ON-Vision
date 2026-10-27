@@ -48,7 +48,9 @@
 .zonebar button { padding: 3px 10px; font-size: 12px; }
 svg.zone { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 svg.zone polygon { fill: rgba(120, 220, 255, .10); stroke: #7de0ff; stroke-width: 1.5; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
-.savebar { gap: 10px; }
+.savebar, .delbar { gap: 10px; align-items: center; flex-wrap: wrap; }
+.delbar button { padding: 6px 12px; }
+.pred-row .pick { flex: none; width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
 .savebar button { padding: 6px 12px; }
 .savedok { color: var(--ok); word-break: break-all; }
 .savedok a { color: var(--accent); }

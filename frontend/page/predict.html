@@ -50,7 +50,13 @@
           <button type="button" id="saveAll" class="secondary" title="Save the pictures with the boxes and a result.json of every set in this list (as filtered) into the exports folder of the app">Save shown</button>
           <label class="corr" title="Also put the pictures as they were saved next to the ones with boxes"><input type="checkbox" id="saveOrig"> with originals</label>
         </div>
+        <div class="row delbar">
+          <button type="button" id="delSel" class="secondary" disabled title="Delete the results of the sets ticked in the list (the sets and their pictures stay)">Delete selected</button>
+          <button type="button" id="delAll" class="secondary" title="Delete the results of ALL sets (the sets and their pictures stay)">Delete all results</button>
+          <label class="corr" title="Tick or untick every set of the list"><input type="checkbox" id="pickAll"> select shown</label>
+        </div>
         <div class="hint" id="saveMsg" hidden></div>
+        <label class="corr" title="Show the pictures as the defect model saw them: the shoe cut out by the segmentation model, the background flat grey. Only for sets predicted with the background removal."><input type="checkbox" id="showCut"> Show background removed</label>
         <div class="zonebar"><label class="corr" title="Draw the learned shoe zone of each camera over the pictures"><input type="checkbox" id="showZone" checked> Show shoe zone</label>
           <button type="button" id="zoneBtn" class="secondary" title="Make the shoe zones again from the latest sets: after a camera was moved">Rebuild</button></div>
         <div class="hint" id="zoneInfo"></div>

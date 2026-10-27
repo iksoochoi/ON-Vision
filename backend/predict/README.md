@@ -5,6 +5,7 @@
 - `worker.py`: 저장된 세트를 자동으로 검사하는 **별도 프로세스**(launchd 서비스). 결과는 `captures/.predict/`에 저장되고 웹의 Predict 메뉴에 나옵니다. 설치와 설정은 [docs/predict.md](../../docs/predict.md).
 - `run_folder.py`, `bench.py`: 카메라 없이 PC/Mac에서 시험하는 도구(아래).
 - `engine.py`: 위 셋이 같이 쓰는 모델 로드/추론/그리기.
+- `segment.py`: 신발 분할 모델(`backend/models/shoe_segmentation/best.pt`). 워커와 `run_folder.py --seg`가 사진에서 신발만 남긴 뒤(배경은 회색) 불량 모델에 넘깁니다. 배경 제거 사진을 만드는 코드는 `backend/storage/cutout.py`(웹도 같이 씀).
 
 ## 설치 (카메라 앱과 별도)
 ```bash
@@ -14,7 +15,7 @@ Ultralytics는 AGPL-3.0입니다. 상용 사용 전에 검토하세요.
 
 ## 폴더 검사 (PC에서 시험)
 ```bash
-python backend/predict/run_folder.py "captures/2026-10-20 Sample" [--device auto|cpu|mps|0] [--imgsz 1280] [--conf 0.25] [--limit N]
+python backend/predict/run_folder.py "captures/2026-10-20 Sample" [--device auto|cpu|mps|0] [--imgsz 1280] [--conf 0.25] [--limit N] [--seg]   # --seg: 신발만 남긴(배경 회색) 사진으로 검사
 ```
 폴더(하위 폴더 포함)는 읽기만 합니다. 결과는 `exports/predict/<폴더명>_<시각>/`(git 제외)에 박스가 그려진 사진, `results.json`, `results.csv`로 저장됩니다.
 
