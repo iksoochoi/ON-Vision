@@ -350,8 +350,11 @@ PREDICT_EXPORT_MAX_SETS = max(1, _env("ON_PREDICT_EXPORT_MAX_SETS", 200, int))
 # The shoe zone of each camera, learned from the saved pictures (storage/zones.py): where a box counts as ON the shoe when the
 # picture has no shoe region of its own. Made from the latest ON_PREDICT_ZONE_SETS sets (at least ON_PREDICT_ZONE_MIN_SETS),
 # again after ON_PREDICT_ZONE_REFRESH_SETS new results; ON_PREDICT_ZONE_THR: how often a pixel must differ from the median
-# picture to belong to the zone (lower = a bigger zone). ON_PREDICT_ZONE=0 switches it off.
-PREDICT_ZONE = _env("ON_PREDICT_ZONE", 1, int) != 0
+# picture to belong to the zone (lower = a bigger zone). OFF by default (ON_PREDICT_ZONE=1 switches it on): the shoe
+# segmentation gives every picture its own shoe region, and a zone that is out of date after a camera was moved would
+# drop real defects as "off shoe" in the pictures where the segmentation found no shoe. Without a zone such a detection
+# is "unknown" and counts.
+PREDICT_ZONE = _env("ON_PREDICT_ZONE", 0, int) != 0
 PREDICT_ZONE_SETS = max(10, _env("ON_PREDICT_ZONE_SETS", 60, int))
 PREDICT_ZONE_MIN_SETS = max(5, _env("ON_PREDICT_ZONE_MIN_SETS", 20, int))
 PREDICT_ZONE_REFRESH_SETS = max(5, _env("ON_PREDICT_ZONE_REFRESH_SETS", 30, int))

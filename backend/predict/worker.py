@@ -4,7 +4,8 @@
     python -m backend.predict.worker --once     predict what is waiting and stop (a test)
     python -m backend.predict.worker --backfill predict every set without a result, however old
 
-It looks at captures/.sets/ for sets that have no result yet in captures/.predict/, newest first, waits until a
+It looks at captures/.sets/ for sets that have no result yet in captures/.predict/, newest first (only the sets whose
+shoe's QR value was read: a set without one is only collected, never predicted), waits until a
 set is complete, predicts its pictures (one per camera) and writes captures/.predict/<id>.json. Every picture goes
 through two models: the shoe segmentation (backend/models/shoe_segmentation) cuts the shoe out and the background is replaced
 by flat grey, then the defect model looks at that picture (ON_PREDICT_SEG=0: at the picture as it was saved). The camera app never
@@ -25,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))   # also runnable a
 
 from backend.core import config as C  # noqa: E402
 from backend.storage import cutout, predictions  # noqa: E402
-from backend.storage.paths import ID_RE, image_path, primary_role, time_key  # noqa: E402
+from backend.storage.paths import ID_RE, has_qr_prefix, image_path, primary_role, time_key  # noqa: E402
 
 POLL_SEC = 2.0
 SEG_NAME = f"{C.PREDICT_SEG_MODEL.parent.name}/{C.PREDICT_SEG_MODEL.name}"   # both model files are called best.pt: say which
@@ -49,7 +50,8 @@ def set_age_hours(stem, now):
 
 
 def waiting(max_age_hours, max_backlog, now=None):
-    """(ids to predict, newest first; how many older ones were left out). The ids are the set file names."""
+    """(ids to predict, newest first; how many older ones were left out). The ids are the set file names. Only sets whose
+    shoe's QR value was read (the id starts with it) are predicted: the others are only collected."""
     now = datetime.fromtimestamp(now or time.time())
     try:
         sets = [e for e in os.scandir(C.SETS_DIR) if e.name.endswith(".json") and ID_RE.match(e.name[:-5])]
@@ -59,7 +61,7 @@ def waiting(max_age_hours, max_backlog, now=None):
     todo = []
     for e in sets:
         stem = e.name[:-5]
-        if stem in done:
+        if stem in done or not has_qr_prefix(stem):
             continue
         age = set_age_hours(stem, now)
         if max_age_hours and age is not None and age > max_age_hours:

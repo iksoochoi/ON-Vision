@@ -34,7 +34,7 @@ import time
 
 from ..core.config import (PREDICT_DIR, PREDICT_MODEL, PREDICT_OK_CLASSES, PREDICT_ON_SHOE_MIN, PREDICT_RECUR_IOU,
                            PREDICT_RECUR_MIN, PREDICT_SHOE_MAX_AREA)
-from .paths import ID_RE, time_key
+from .paths import ID_RE, has_qr_prefix, time_key
 from .zones import zones
 
 REFRESH_SEC = 1.5
@@ -259,6 +259,8 @@ class PredictIndex:
                 if not e.name.endswith(".json") or e.name == STATUS_NAME:
                     continue
                 sid = e.name[:-5]
+                if not has_qr_prefix(sid):   # sets without a QR value are not part of Predict (a result of an earlier run is not listed)
+                    continue
                 seen.add(sid)
                 try:
                     mtime = e.stat().st_mtime_ns

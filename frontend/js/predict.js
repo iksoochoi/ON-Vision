@@ -13,9 +13,6 @@ let rows = [];
 let totals = null;
 let okClasses = [];
 let selected = null;
-let zones = {};   // the learned shoe zone of each camera (outline polygons), see storage/zones.py
-let zoneStatus = null;
-let zoneStamp = null;
 let current = null;   // the result shown on the right
 let currentCtx = null;   // and what helps to judge it (data.context)
 const picked = new Set();   // the sets ticked in the list (to delete their results)
@@ -127,8 +124,8 @@ function renderRows() {
       <div class="pred-row${r.id === selected ? ' sel' : ''}" data-id="${esc(r.id)}">
         <input type="checkbox" class="pick" aria-label="Select this set"${picked.has(r.id) ? ' checked' : ''}>
         <img loading="lazy" alt="" src="${imageUrl(r.id, r.defect_views[0] || 'top', 'thumb')}" onerror="this.style.visibility='hidden'">
-        <div><div class="t">${esc(r.time.replace('T', ' ').slice(0, 19))}</div>
-          <div class="s">${esc(r.shoe_id || 'no QR value')}${r.count ? ' · ' + esc(Object.keys(r.classes).join(', ')) : ''}</div></div>
+        <div class="txt"><div class="t" title="${esc(r.shoe_id || '')}">${esc(r.shoe_id || r.time.replace('T', ' ').slice(0, 19))}</div>
+          <div class="s">${esc(r.time.replace('T', ' ').slice(0, 19))}${r.count ? ' · ' + esc(Object.keys(r.classes).join(', ')) : ''}</div></div>
         <div class="rb">${badge(r)}${rawNote(r)}</div>
       </div>`).join('');
   }
@@ -186,7 +183,6 @@ async function load(append) {
     $('corrInfo').textContent = corrected ? `${totals.raw_defect} → ${totals.defect} defect sets` : '';
     rows = append ? rows.concat(data.rows) : data.rows;
     renderWorker(data.status);
-    loadZones();
     renderFilters();
     renderRows();
     if (!selected && !append && rows.length) showSet(rows[0].id);   // the newest set is shown at first
@@ -221,33 +217,6 @@ const statusChip = (c) => {
 
 const SHOE_TEXT = { on: 'on shoe', off: 'off shoe', unknown: 'unknown' };
 
-// The learned shoe zone of a camera drawn over its picture (the outline, in fractions of the picture)
-function zoneSvg(role) {
-  const z = zones[role];
-  if (!z || !$('showZone').checked) return '';
-  const polys = z.polygons.map((p) => `<polygon points="${p.map((q) => q.join(',')).join(' ')}"/>`).join('');
-  return `<svg class="zone" viewBox="0 0 1 1" preserveAspectRatio="none">${polys}</svg>`;
-}
-
-async function loadZones() {
-  try {
-    zoneStatus = await getJson('/api/predict/zones');
-  } catch (e) {
-    return;
-  }
-  const stamp = zoneStatus.built_at || '';
-  zones = zoneStatus.cameras || {};
-  if (stamp !== zoneStamp) {   // the zones were made (again): the open set shows them
-    zoneStamp = stamp;
-    if (selected && current) showSet(selected);
-  }
-  const info = $('zoneInfo');
-  if (!zoneStatus.enabled) info.textContent = 'Shoe zone: off (ON_PREDICT_ZONE=0)';
-  else if (zoneStatus.building) info.textContent = 'Shoe zone: being made…';
-  else if (!zoneStatus.built_at) info.textContent = `Shoe zone: not made yet (it needs ${zoneStatus.min_sets} results)`;
-  else info.textContent = `Shoe zone: from ${Math.max(...Object.values(zones).map((c) => c.sets), 0)} sets, made ${zoneStatus.built_at.replace('T', ' ')}`;
-  $('zoneBtn').disabled = !!zoneStatus.building || !zoneStatus.enabled;
-}
 const mapChip = (m) => (m ? `<span class="chip ${m.map50 >= 0.5 ? 'ok' : (m.map50 < 0.2 ? 'warn' : '')}" title="Validation mAP50 of the model for this class (${m.instances} objects in the validation pictures)">${m.map50.toFixed(2)}</span>` : '-');
 
 const rank = (role) => (ORDER.indexOf(role) < 0 ? 9 : ORDER.indexOf(role));
@@ -278,7 +247,7 @@ async function showSet(id) {
     const cut = v && v.seg ? (v.seg.found ? ' · bg removed' : ' · no shoe outlined') : '';
     const info = v ? `${dets.length} found${sharp}${cut} · ${Math.round(v.ms)} ms` : esc(err || 'not predicted');
     return `<div class="pred-cell"><div class="cap"><b>${esc(role)}</b><span>${info}</span></div>
-      <div class="pred-box" data-role="${esc(role)}"><img loading="lazy" alt="" src="${pictureUrl(id, role, 'thumb', v)}">${zoneSvg(role)}${boxes(dets, vc.detections)}</div></div>`;
+      <div class="pred-box" data-role="${esc(role)}"><img loading="lazy" alt="" src="${pictureUrl(id, role, 'thumb', v)}">${boxes(dets, vc.detections)}</div></div>`;
   }).join('');
   const table = all.length
     ? '<div class="card"><h3>Detections</h3><table class="qr-table"><thead><tr><th>Camera</th><th>Class</th><th class="num">Score</th>' +
@@ -338,17 +307,7 @@ $('flt').onclick = (e) => {
   load(false);
 };
 $('corr').onchange = () => { corrected = $('corr').checked; load(false); if (selected) showSet(selected); };
-$('showZone').onchange = () => { if (selected) showSet(selected); };
 $('showCut').onchange = () => { if (selected) showSet(selected); };
-$('zoneBtn').onclick = async () => {
-  if (!window.confirm('Make the shoe zones again from the latest sets? Do it after a camera was moved, when the latest sets are from the new position.')) return;
-  $('zoneBtn').disabled = true;
-  $('zoneInfo').textContent = 'Shoe zone: being made…';
-  try {
-    await fetch('/api/predict/zones/rebuild', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-  } catch (e) { /* the status line below says what is going on */ }
-  loadZones();
-};
 $('saveAll').onclick = () => {
   const n = totals ? totals.matching : 0;
   if (n > 50 && !window.confirm(`Save ${n} sets? Every set takes about a second and some disk space.`)) return;

@@ -19,6 +19,13 @@ def qr_prefix(text):
     return cleaned[:QR_PREFIX_MAX].strip("-._")
 
 
+def has_qr_prefix(sample_id):
+    """Does the id start with the shoe's QR value? (A set saved without a QR value is just the capture time.)
+    The Predict page and the defect worker only deal with such sets."""
+    m = _TIME_RE.search(sample_id)
+    return bool(m) and m.start() > 0
+
+
 def time_key(sample_id):
     """The capture-time part of an id: what the sets are sorted by (the QR value in front is not)."""
     m = _TIME_RE.search(sample_id)
