@@ -101,6 +101,8 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, Pr
             self._get_predict(path[len("/api/predict/"):], query)
         elif path.startswith("/exports/"):
             self._download_export(path[len("/exports/"):])
+        elif path == "/api/samples/download":
+            self._download_sets(query)
         elif path.startswith("/api/samples/"):
             self._get_sample(path[len("/api/samples/"):], query)
         else:

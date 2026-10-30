@@ -368,6 +368,8 @@ EXPORTS_DIR = _path("ON_EXPORTS_DIR", "exports")
 # Where bin/capture_backup.sh puts capture_<date>.zip (a drive with room for a day of pictures)
 BACKUP_DIR = _path("ON_BACKUP_DIR", "backups")
 EXPORT_MAX_SIDE = _env("ON_EXPORT_MAX_SIDE", 1280, int)  # downscale exported images; 0 = keep original
+# The Gallery's "Download" zip of sets: the pictures as saved, at most this many MB per download (0 = no limit)
+DOWNLOAD_MAX_MB = max(0, _env("ON_DOWNLOAD_MAX_MB", 2048, int))
 
 # ---- frontend (sent to the browser via /api/state; keep secrets out of ON_UI_*) ----
 _FILTERS = ("unlabeled", "ok", "ng", "reject", "all")

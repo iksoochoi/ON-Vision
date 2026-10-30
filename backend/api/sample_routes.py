@@ -1,5 +1,6 @@
 """Routes for one sample: its data, pictures, label, bbox and QR."""
 
+from ..storage import set_download
 from ..storage.paths import ID_RE
 from ..storage.store import store
 
@@ -35,6 +36,27 @@ class SampleRoutes:
             self.wfile.write(data)
         else:
             self.send_error(404)
+
+    def _download_sets(self, query):
+        """?ids=<id>,<id>,...: the frames (pictures + saved data) as one zip, see storage/set_download.py."""
+        ids = [i for i in query.get("ids", [""])[0].split(",") if i]
+        try:
+            tmp, name, size = set_download.build(ids)
+        except set_download.DownloadError as e:
+            self.send_error(e.code, str(e))
+            return
+        except OSError as e:
+            self.send_error(500, f"could not make the zip: {e}")
+            return
+        with tmp:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Length", str(size))
+            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            while chunk := tmp.read(1 << 20):
+                self.wfile.write(chunk)
 
     def _set_bbox(self, sample_id, data):
         """Body: {x,y,w,h} draw | {"confirm": true} | {"clear": true} | {"auto": true}."""

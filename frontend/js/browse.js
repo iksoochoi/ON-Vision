@@ -19,6 +19,7 @@ let camOrder = [];         // roles to show
 const hidden = new Set();  // cameras switched off in the filter
 let mode = 'sets';         // 'sets' | 'cams'
 let focusSample = null;    // ?sample=<id>: the set that contains it is highlighted
+const picked = new Set();  // keys of the sets ticked for the download (of the open shoe)
 let shown = [];            // the pictures on screen, in order: what the lightbox steps through
 let lbIndex = -1;
 
@@ -160,9 +161,11 @@ function setUrl() {
 }
 
 async function selectShoe(id, keepScroll) {
+  if (id !== current) picked.clear();
   current = id;
   metas = await getJson('/api/samples?shoe=' + shoeParam(id) + (dateFilter ? `&date=${encodeURIComponent(dateFilter)}` : ''));
   sets = groupSets(metas);
+  for (const key of [...picked]) if (!sets.some((s) => s.key === key)) picked.delete(key);   // deleted meanwhile
   camOrder = mergeCams();
   renderShoes();
   renderDetail(keepScroll);
@@ -184,6 +187,8 @@ function renderDetail(keepScroll) {
     + `${fmtTime(sets[sets.length - 1].time)} ~ ${fmtTime(sets[0].time)}`;
   $('modeSets').classList.toggle('active', mode === 'sets');
   $('modeCams').classList.toggle('active', mode === 'cams');
+  $('dlBar').hidden = mode !== 'sets';
+  updateDownload();
 
   const chips = $('camFilter');
   chips.replaceChildren();
@@ -236,9 +241,20 @@ function cell(m, role, label) {
 function renderSets(box) {
   const roles = camOrder.filter((r) => !hidden.has(r));
   sets.forEach((s, i) => {
-    const card = el('div', 'setcard' + (focusSample && s.cuts.some((c) => c.id === focusSample) ? ' focus' : ''));
+    const card = el('div', 'setcard' + (picked.has(s.key) ? ' picked' : '') + (focusSample && s.cuts.some((c) => c.id === focusSample) ? ' focus' : ''));
     const head = el('div', 'sethead');
-    head.append(el('b', '', `Set ${sets.length - i}`), el('span', '', fmtTime(s.time)),
+    const pick = el('label', 'pick');
+    const box1 = document.createElement('input');
+    box1.type = 'checkbox';
+    box1.checked = picked.has(s.key);
+    box1.title = 'Tick to download this set';
+    box1.onchange = () => {
+      box1.checked ? picked.add(s.key) : picked.delete(s.key);
+      card.classList.toggle('picked', box1.checked);
+      updateDownload();
+    };
+    pick.append(box1, el('b', '', `Set ${sets.length - i}`));
+    head.append(pick, el('span', '', fmtTime(s.time)),
       el('span', '', s.source === 'auto' ? 'Auto' : 'Manual'), el('span', '', `${s.cuts.length} frames`));
     const del = el('button', 'secondary delBtn', 'Delete set');
     del.title = 'Delete every picture of this set (all cuts, all cameras)';
@@ -280,6 +296,41 @@ function renderCams(box) {
     box.appendChild(sec);
   }
 }
+
+// ---- download the ticked sets as one zip (pictures + the data saved with them) ---------------------------
+
+const MAX_DOWNLOAD_FRAMES = 600;   // the server's limit (the ids travel in the address)
+const pickedIds = () => sets.filter((s) => picked.has(s.key)).flatMap((s) => s.cuts.map((m) => m.id));
+
+function updateDownload() {
+  const n = sets.filter((s) => picked.has(s.key)).length;
+  $('dlBtn').textContent = `Download selected (${n})`;
+  $('dlBtn').disabled = n === 0;
+  $('selAll').disabled = sets.length === 0 || n === sets.length;
+  $('selNone').disabled = n === 0;
+}
+
+function setAllPicked(on) {
+  for (const s of sets) on ? picked.add(s.key) : picked.delete(s.key);
+  renderDetail(true);
+}
+
+$('selAll').onclick = () => setAllPicked(true);
+$('selNone').onclick = () => setAllPicked(false);
+$('dlBtn').onclick = () => {
+  const ids = pickedIds();
+  if (!ids.length) return;
+  if (ids.length > MAX_DOWNLOAD_FRAMES) {
+    alert(`Too many frames (${ids.length}). Download at most ${MAX_DOWNLOAD_FRAMES} frames at a time: untick some sets.`);
+    return;
+  }
+  const a = document.createElement('a');        // the browser downloads the zip itself (nothing is held in the page)
+  a.href = '/api/samples/download?ids=' + ids.map(encodeURIComponent).join(',');
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+};
 
 // ---- delete a whole set (all its cuts, every camera) ---------------------------------------------------
 
