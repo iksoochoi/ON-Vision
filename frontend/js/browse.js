@@ -19,7 +19,7 @@ let camOrder = [];         // roles to show
 const hidden = new Set();  // cameras switched off in the filter
 let mode = 'sets';         // 'sets' | 'cams'
 let focusSample = null;    // ?sample=<id>: the set that contains it is highlighted
-const picked = new Set();  // keys of the sets ticked for the download (of the open shoe)
+const picked = new Map();  // the shoes ticked for the download: shoeParam(shoe_id) -> shoe_id (kept while the list changes)
 let shown = [];            // the pictures on screen, in order: what the lightbox steps through
 let lbIndex = -1;
 
@@ -88,13 +88,27 @@ function renderShoes() {
   if (!shoes.length) {
     box.appendChild(el('div', 'empty', needle ? 'No matches' : 'No saved images'));
   }
+  updateDownload();
   for (const s of shoes) {
-    const item = el('div', 'shoe' + (s.shoe_id === null ? ' noid' : '') + (s.shoe_id === current ? ' sel' : ''));
+    const key = shoeParam(s.shoe_id);
+    const item = el('div', 'shoe' + (s.shoe_id === null ? ' noid' : '') + (s.shoe_id === current ? ' sel' : '') + (picked.has(key) ? ' picked' : ''));
     item.title = shoeName(s.shoe_id);
+    const pick = el('label', 'pick');
+    pick.title = 'Tick to download this shoe';
+    pick.onclick = (e) => e.stopPropagation();   // ticking does not open the shoe
+    const box1 = document.createElement('input');
+    box1.type = 'checkbox';
+    box1.checked = picked.has(key);
+    box1.onchange = () => {
+      box1.checked ? picked.set(key, s.shoe_id) : picked.delete(key);
+      item.classList.toggle('picked', box1.checked);
+      updateDownload();
+    };
+    pick.appendChild(box1);
     const text = el('div');
     text.append(el('div', 'name', shoeName(s.shoe_id)),
       el('div', 'sub', `${s.sets} sets · ${s.images} images · ${fmtBytes(s.bytes)}`), el('div', 'sub', `last ${fmtTime(s.last)}`));
-    item.append(text);
+    item.append(pick, text);
     item.onclick = () => selectShoe(s.shoe_id);
     box.appendChild(item);
   }
@@ -129,6 +143,8 @@ async function selectDate(date) {
   dateFilter = date;
   try {
     await refreshShoes();
+    for (const [key, id] of [...picked]) if (!shoes.some((s) => s.shoe_id === id)) picked.delete(key);   // not on that day
+    updateDownload();
     if (current !== undefined && shoes.some((s) => s.shoe_id === current)) await selectShoe(current);
     else if (shoes.length) await selectShoe(shoes[0].shoe_id);
     else { current = undefined; metas = []; sets = []; renderDetail(false); setUrl(); }
@@ -161,11 +177,9 @@ function setUrl() {
 }
 
 async function selectShoe(id, keepScroll) {
-  if (id !== current) picked.clear();
   current = id;
   metas = await getJson('/api/samples?shoe=' + shoeParam(id) + (dateFilter ? `&date=${encodeURIComponent(dateFilter)}` : ''));
   sets = groupSets(metas);
-  for (const key of [...picked]) if (!sets.some((s) => s.key === key)) picked.delete(key);   // deleted meanwhile
   camOrder = mergeCams();
   renderShoes();
   renderDetail(keepScroll);
@@ -187,8 +201,6 @@ function renderDetail(keepScroll) {
     + `${fmtTime(sets[sets.length - 1].time)} ~ ${fmtTime(sets[0].time)}`;
   $('modeSets').classList.toggle('active', mode === 'sets');
   $('modeCams').classList.toggle('active', mode === 'cams');
-  $('dlBar').hidden = mode !== 'sets';
-  updateDownload();
 
   const chips = $('camFilter');
   chips.replaceChildren();
@@ -241,20 +253,9 @@ function cell(m, role, label) {
 function renderSets(box) {
   const roles = camOrder.filter((r) => !hidden.has(r));
   sets.forEach((s, i) => {
-    const card = el('div', 'setcard' + (picked.has(s.key) ? ' picked' : '') + (focusSample && s.cuts.some((c) => c.id === focusSample) ? ' focus' : ''));
+    const card = el('div', 'setcard' + (focusSample && s.cuts.some((c) => c.id === focusSample) ? ' focus' : ''));
     const head = el('div', 'sethead');
-    const pick = el('label', 'pick');
-    const box1 = document.createElement('input');
-    box1.type = 'checkbox';
-    box1.checked = picked.has(s.key);
-    box1.title = 'Tick to download this set';
-    box1.onchange = () => {
-      box1.checked ? picked.add(s.key) : picked.delete(s.key);
-      card.classList.toggle('picked', box1.checked);
-      updateDownload();
-    };
-    pick.append(box1, el('b', '', `Set ${sets.length - i}`));
-    head.append(pick, el('span', '', fmtTime(s.time)),
+    head.append(el('b', '', `Set ${sets.length - i}`), el('span', '', fmtTime(s.time)),
       el('span', '', s.source === 'auto' ? 'Auto' : 'Manual'), el('span', '', `${s.cuts.length} frames`));
     const del = el('button', 'secondary delBtn', 'Delete set');
     del.title = 'Delete every picture of this set (all cuts, all cameras)';
@@ -297,35 +298,34 @@ function renderCams(box) {
   }
 }
 
-// ---- download the ticked sets as one zip (pictures + the data saved with them) ---------------------------
+// ---- download the ticked shoes (all their sets: pictures + the data saved with them) as one zip ------------
 
-const MAX_DOWNLOAD_FRAMES = 600;   // the server's limit (the ids travel in the address)
-const pickedIds = () => sets.filter((s) => picked.has(s.key)).flatMap((s) => s.cuts.map((m) => m.id));
+const MAX_DOWNLOAD_SHOES = 500;   // the server's limit (the QR values travel in the address)
 
 function updateDownload() {
-  const n = sets.filter((s) => picked.has(s.key)).length;
-  $('dlBtn').textContent = `Download selected (${n})`;
+  const n = picked.size;
+  $('dlBtn').textContent = `Download (${n} ${n === 1 ? 'shoe' : 'shoes'})`;
   $('dlBtn').disabled = n === 0;
-  $('selAll').disabled = sets.length === 0 || n === sets.length;
+  $('selAll').disabled = shoes.length === 0 || shoes.every((s) => picked.has(shoeParam(s.shoe_id)));
   $('selNone').disabled = n === 0;
 }
 
 function setAllPicked(on) {
-  for (const s of sets) on ? picked.add(s.key) : picked.delete(s.key);
-  renderDetail(true);
+  for (const s of shoes) on ? picked.set(shoeParam(s.shoe_id), s.shoe_id) : picked.delete(shoeParam(s.shoe_id));
+  if (!on) picked.clear();
+  renderShoes();
 }
 
 $('selAll').onclick = () => setAllPicked(true);
 $('selNone').onclick = () => setAllPicked(false);
 $('dlBtn').onclick = () => {
-  const ids = pickedIds();
-  if (!ids.length) return;
-  if (ids.length > MAX_DOWNLOAD_FRAMES) {
-    alert(`Too many frames (${ids.length}). Download at most ${MAX_DOWNLOAD_FRAMES} frames at a time: untick some sets.`);
+  if (!picked.size) return;
+  if (picked.size > MAX_DOWNLOAD_SHOES) {
+    alert(`Too many shoes (${picked.size}). Download at most ${MAX_DOWNLOAD_SHOES} shoes at a time: untick some.`);
     return;
   }
   const a = document.createElement('a');        // the browser downloads the zip itself (nothing is held in the page)
-  a.href = '/api/samples/download?ids=' + ids.map(encodeURIComponent).join(',');
+  a.href = '/api/samples/download?' + [...picked.keys()].map((k) => 'shoe=' + k).join('&') + (dateFilter ? `&date=${encodeURIComponent(dateFilter)}` : '');
   a.download = '';
   document.body.appendChild(a);
   a.click();

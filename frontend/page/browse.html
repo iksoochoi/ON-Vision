@@ -39,6 +39,11 @@
     </aside>
     <aside class="shoelist">
       <input id="search" type="search" placeholder="Search shoe ID" autocomplete="off">
+      <div class="dlbar" id="dlBar">
+        <button id="selAll" class="secondary" title="Tick every shoe on the list">Select all</button>
+        <button id="selNone" class="secondary" title="Untick all shoes">Clear</button>
+        <button id="dlBtn" title="Download all the sets (pictures + data) of the ticked shoes as one .zip file" disabled>Download (0 shoes)</button>
+      </div>
       <div id="shoes"></div>
     </aside>
     <main class="shoeview">
@@ -54,11 +59,6 @@
             <button id="modeCams" title="All images of each camera in one row">By camera</button>
           </div>
           <div class="chips" id="camFilter"></div>
-          <div class="dlbar" id="dlBar">
-            <button id="selAll" class="secondary" title="Tick every set of this shoe">Select all</button>
-            <button id="selNone" class="secondary" title="Untick all sets">Clear</button>
-            <button id="dlBtn" title="Download the ticked sets (pictures + data) as one .zip file" disabled>Download selected (0)</button>
-          </div>
         </div>
         <div id="content"></div>
       </div>
