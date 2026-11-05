@@ -60,7 +60,7 @@ def qr_sizes(meta):
 
 
 def live_hit(since, until, enqueued, center_ts=None, band=0.0):
-    """The live scanners' code for this shoe pass: (text, source, others) or None. With a band and the time of
+    """The live scanners' code for this shoe pass: (text, source, others, camera), text None when there is none. With a band and the time of
     the center shot (automatic captures) it is the code in the middle of the picture around that moment, else
     the code read most often in [since, until] (epoch seconds)."""
     if band and center_ts is not None:
@@ -68,8 +68,8 @@ def live_hit(since, until, enqueued, center_ts=None, band=0.0):
     else:
         hit, others = qr_hub.live_code(since, until), []
     if hit and hit["text"].strip():
-        return hit["text"].strip(), "live_late" if hit["epoch"] > enqueued else "live", others
-    return None, None, others
+        return hit["text"].strip(), "live_late" if hit["epoch"] > enqueued else "live", others, hit["role"]
+    return None, None, others, None
 
 
 def zoom_search(prepared):
@@ -104,7 +104,8 @@ def zoom_search(prepared):
 
 
 def resolve_shoe(prepared, enqueued, window, center_ts=None):
-    """The shoe's QR value for the whole capture: (text, source, others) or (None, None, ignored).
+    """The shoe's QR value for the whole capture: (text, source, others, camera) or (None, None, ignored, None).
+    camera: the camera of a live read (the saved pictures hold no code then); else None, the set's "qr" list tells it.
     Sources, in the order they are tried:
       capture       read in the saved pictures of the shoe pass (all shots, the QR cameras)
       live          the live scanner read it while the shoe passed
@@ -118,7 +119,7 @@ def resolve_shoe(prepared, enqueued, window, center_ts=None):
     code that was read while it was busy."""
     since, until = window
     if not C.QR_ENABLED:
-        return None, None, []
+        return None, None, [], None
     band = C.QR_CENTER_BAND if center_ts is not None else 0.0
     ignored = []
 
@@ -127,22 +128,22 @@ def resolve_shoe(prepared, enqueued, window, center_ts=None):
 
     text, others = vote([c for _, _, _, codes in prepared for c in codes], band)
     if text:
-        return text, "capture", others
+        return text, "capture", others, None
     note(others)
-    text, source, others = live_hit(since, until, enqueued, center_ts, band)
+    text, source, others, camera = live_hit(since, until, enqueued, center_ts, band)
     if text:
-        return text, source, others
+        return text, source, others, camera
     note(others)
     if C.QR_ZOOM:
         text, others = vote(zoom_search(prepared), band)
         if text:
-            return text, "capture_zoom", others
+            return text, "capture_zoom", others, None
         note(others)
     while True:   # nothing yet: the code may be read a moment after the capture
-        text, source, others = live_hit(since, until, enqueued, center_ts, band)
+        text, source, others, camera = live_hit(since, until, enqueued, center_ts, band)
         if text:
-            return text, source, others
+            return text, source, others, camera
         note(others)
         if time.time() >= until:
-            return None, None, ignored
+            return None, None, ignored, None
         time.sleep(0.2)

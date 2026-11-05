@@ -87,6 +87,25 @@ const openDays = new Set();   // dates whose hours are shown
 let dailyData = [];
 let sizeData = null, sourceData = {}, methodData = {};
 
+// Which camera read the QR value of the sets: {left: 150, right: 130} -> (L:150, R:130); ? = not known
+const CAM_ORDER = ['top', 'back', 'left', 'front', 'right'];
+const camRank = (c) => (c === 'unknown' ? 99 : CAM_ORDER.includes(c) ? CAM_ORDER.indexOf(c) : 50);
+const camList = (cams) => Object.entries(cams || {}).sort((a, b) => camRank(a[0]) - camRank(b[0]) || a[0].localeCompare(b[0]));
+const camLabel = (c) => (c === 'unknown' ? '?' : c[0].toUpperCase());
+const camText = (cams) => {
+  const list = camList(cams);
+  return list.length ? ` <small class="dim">(${list.map(([c, n]) => `${esc(camLabel(c))}:${n}`).join(', ')})</small>` : '';
+};
+const camTitle = (cams) => {
+  const list = camList(cams);
+  return list.length ? ` title="${esc(list.map(([c, n]) => `${c === 'unknown' ? 'camera not known' : c}: ${n}`).join(', '))}"` : '';
+};
+function addCams(a, b) {
+  const out = { ...a };
+  for (const [c, n] of Object.entries(b || {})) out[c] = (out[c] || 0) + n;
+  return out;
+}
+
 function renderDaily(data) {
   if (data) {
     dailyData = data.days || [];
@@ -103,7 +122,7 @@ function renderDaily(data) {
   }
   const rate = (ok, n) => (n ? (100 * ok / n).toFixed(1) + '%' : '-');
   // Size: what the sets' pictures and thumbnails take on the disk; the title gives the average per set
-  const cells = (r) => `<td class="num">${r.sets}</td><td class="num">${r.ok}</td>` +
+  const cells = (r) => `<td class="num">${r.sets}</td><td class="num"${camTitle(r.cams)}>${r.ok}${camText(r.cams)}</td>` +
     `<td class="num${r.fail ? ' bad' : ''}">${r.fail}${r.fail ? ` <small class="dim">(${r.seen} seen)</small>` : ''}</td>` +
     `<td class="num">${rate(r.ok, r.sets)}</td>` +
     `<td class="num" title="${r.sets ? fmtBytes(r.size / r.sets) + ' per set' : ''}">${fmtBytes(r.size)}</td>`;
@@ -120,8 +139,8 @@ function renderDaily(data) {
     }
   }
   tbody.innerHTML = html;
-  const sum = dailyData.reduce((a, d) => ({ sets: a.sets + d.sets, ok: a.ok + d.ok, fail: a.fail + d.fail, seen: a.seen + d.seen, size: a.size + (d.size || 0) }),
-    { sets: 0, ok: 0, fail: 0, seen: 0, size: 0 });
+  const sum = dailyData.reduce((a, d) => ({ sets: a.sets + d.sets, ok: a.ok + d.ok, fail: a.fail + d.fail, seen: a.seen + d.seen, size: a.size + (d.size || 0), cams: addCams(a.cams, d.cams) }),
+    { sets: 0, ok: 0, fail: 0, seen: 0, size: 0, cams: {} });
   foot.innerHTML = `<tr><td>Total</td>${cells(sum)}</tr>`;
 }
 

@@ -74,6 +74,9 @@ class ShoeIndex:
         best = max((c for c in meta.get("qr") or [] if c.get("size_px")), key=lambda c: c["size_px"], default=None)
         seen = [v["qr_seen_px"] for v in (meta.get("views") or {}).values()
                 if isinstance(v, dict) and v.get("qr_seen_px")]
+        shoe = meta.get("shoe_id") or None
+        own = [c for c in meta.get("qr") or [] if shoe and (c.get("text") or "").strip() == shoe]   # not a neighbour's code
+        reader = max(own, key=lambda c: c.get("size_px") or 0, default=None)
         bbox = meta.get("bbox")
         return {"id": sid, "tk": time_key(sid), "shoe_id": meta.get("shoe_id") or None,
                 "time": meta.get("timestamp") or "", "burst": burst.get("id"), "kind": burst.get("kind"),
@@ -81,6 +84,7 @@ class ShoeIndex:
                 "status": label_status(meta), "bbox": 1 if bbox else 0,
                 "reviewed": 1 if bbox and bbox.get("reviewed") else 0,
                 "source": meta.get("shoe_id_source"),   # where the QR value came from (capture, live, ...)
+                "camera": meta.get("shoe_id_camera") or (reader or {}).get("view"),   # which camera read the QR value (None = not known)
                 "method": (best or {}).get("method"),   # how that code was read (decode.py / enhance.py)
                 "read_px": max(read) if read else None,   # size of the biggest code that was read in a picture
                 "seen_px": max(seen) if seen else None}   # size of a code that was located but not read
@@ -371,23 +375,26 @@ class ShoeIndex:
          "sources": {"capture": n, "live": n, ...},
          "methods": {"cv": n, "rect+zxing": n, ...},   how the codes in the saved pictures were read
          "size": bytes of everything}
+        cams (in every day and hour): of the "ok" sets, how many each camera read, {"left": 150, "right": 130, "unknown": 5}
+        (unknown: read by the live scan before the camera was saved with the set).
         ok = the set got a QR value, fail = it did not; seen = of the failed sets, those where a QR code was located
         in a picture but could not be read (fail - seen = no code was seen at all). size = what the set's pictures
         and thumbnails take on the disk. The day and the hour (0-23, oldest first) are those of the set's first cut.
         sizes: how big the code was in the picture (px, the biggest per set): of the sets where it was read, and of
         those where it was located but not readable."""
         def build():
-            passes = {}   # pass id -> {"time", "ok", "source", "method", "read_px", "seen_px", "size"}
+            passes = {}   # pass id -> {"time", "ok", "source", "camera", "method", "read_px", "seen_px", "size"}
             for info in self._sets.values():
                 if not self._listed(info):
                     continue
                 p = passes.setdefault(info["burst"] or info["id"], {"time": info["time"], "ok": False, "source": None,
-                                                                    "method": None, "read_px": None, "seen_px": None,
+                                                                    "camera": None, "method": None, "read_px": None, "seen_px": None,
                                                                     "size": 0})
                 p["time"] = min(p["time"], info["time"])
                 p["size"] += info["bytes"]
                 if info["shoe_id"] is not None:
                     p["ok"], p["source"] = True, p["source"] or info["source"]
+                    p["camera"] = p["camera"] or info.get("camera")
                 if info.get("method") and (not p["read_px"] or (info.get("read_px") or 0) > p["read_px"]):
                     p["method"] = info["method"]
                 for key in ("read_px", "seen_px"):
@@ -399,9 +406,9 @@ class ShoeIndex:
             total = 0
             for p in passes.values():
                 date = p["time"][:10] or "unknown"
-                d = days.setdefault(date, {"date": date, "sets": 0, "ok": 0, "fail": 0, "seen": 0, "size": 0, "hours": {}})
+                d = days.setdefault(date, {"date": date, "sets": 0, "ok": 0, "fail": 0, "seen": 0, "size": 0, "cams": {}, "hours": {}})
                 hour = int(p["time"][11:13]) if p["time"][11:13].isdigit() else -1
-                h = d["hours"].setdefault(hour, {"hour": hour, "sets": 0, "ok": 0, "fail": 0, "seen": 0, "size": 0})
+                h = d["hours"].setdefault(hour, {"hour": hour, "sets": 0, "ok": 0, "fail": 0, "seen": 0, "size": 0, "cams": {}})
                 seen = not p["ok"] and p["seen_px"] is not None
                 total += p["size"]
                 for bucket in (d, h):
@@ -409,6 +416,9 @@ class ShoeIndex:
                     bucket["ok" if p["ok"] else "fail"] += 1
                     bucket["seen"] += 1 if seen else 0
                     bucket["size"] += p["size"]
+                    if p["ok"]:
+                        camera = p["camera"] or "unknown"
+                        bucket["cams"][camera] = bucket["cams"].get(camera, 0) + 1
                 if p["ok"]:
                     source = p["source"] or "unknown"
                     sources[source] = sources.get(source, 0) + 1

@@ -104,7 +104,7 @@ def job(source, results, shoe, expected, took, totals, burst=None, settings_lost
 
     results  one dict per cut (a manual capture has one, a shoe pass up to three):
              {"id", "saved": [roles with a saved picture], "missing": {role: reason}, "error": text or None}
-    shoe     (text, source, others) of the QR value, or (None, None, [])
+    shoe     (text, source, others, camera) of the QR value, or (None, None, [], None)
     expected the cameras that should each have a picture in every cut (all configured cameras)
     totals   what is saved now: {"sets", "cuts", "images", "shoes", "no_id_sets"}
     settings_lost  {role: what differs}: cameras whose pictures were taken with other settings than asked for"""
@@ -130,7 +130,7 @@ def job(source, results, shoe, expected, took, totals, burst=None, settings_lost
         _report("capture_settings_lost", source, results[0]["id"], settings_lost)
     if not C.CAPTURE_LOG:
         return
-    text, how, others = shoe
+    text, how, others = shoe[:3]
     shoe_text = f"shoe={_quote(text)}({how})" if text else "shoe=-"
     shoe_text += " qr_px=" + _qr_px_text(results)
     if others:

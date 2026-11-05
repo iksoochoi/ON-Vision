@@ -206,7 +206,7 @@ class SampleStore:
     @staticmethod
     def _report_conflict(sets, shoe):
         """Another QR value was read for the same shoe pass (a neighbour's, or a wrong read): to collect.log, no alert."""
-        text, source, others = shoe
+        text, source, others, _ = shoe
         if not others:
             return
         first = sets[0][2]
@@ -223,11 +223,13 @@ class SampleStore:
 
     def _write_set(self, base_id, meta, images, codes, shoe):
         """Write one prepared set under its final id: the shoe's QR value + the capture time."""
-        shoe_id, source, others = shoe
+        shoe_id, source, others, camera = shoe
         prefix = qr_prefix(shoe_id)
         sample_id = f"{prefix}_{base_id}" if prefix else base_id
         meta["id"] = sample_id
         meta["shoe_id"], meta["shoe_id_source"] = shoe_id, source
+        if camera:   # read by the live scan: the saved pictures do not say which camera it was
+            meta["shoe_id_camera"] = camera
         if others:
             meta["shoe_id_other"] = others
         primary = meta["primary_view"]
