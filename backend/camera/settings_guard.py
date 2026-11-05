@@ -23,13 +23,13 @@ agrees again after a resend the answer is "restored"."""
 
 import time
 
-from ..core.config import DEFAULT_EXPOSURE_US, DEFAULT_ISO
+from ..core.config import DEFAULT_EXPOSURE_US, DEFAULT_ISO, SETTINGS_RESEND_SEC, SETTINGS_RETRIES
 
 TOLERANCE = 0.25      # the picture may differ this much from what was asked (the camera rounds the exposure time)
 GRACE_SEC = 4.0       # after settings were sent the pictures need this long to show them
 BAD_SEC = 3.0         # a difference must last this long before anything is done
-RESEND_EVERY_SEC = 10.0
-GIVE_UP_AFTER = 3     # sending again this many times without a change: the camera has to be restarted
+RESEND_EVERY_SEC = SETTINGS_RESEND_SEC   # ON_SETTINGS_RESEND_SEC
+GIVE_UP_AFTER = SETTINGS_RETRIES          # ON_SETTINGS_RETRIES: sending again this many times without a change: the camera has to be restarted
 
 
 def mismatch(params, exposure_us, iso, tol=TOLERANCE):

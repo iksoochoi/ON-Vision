@@ -220,6 +220,8 @@ class Picker(threading.Thread):
             if slot is trigger and chosen["det"] is not None:
                 part = replace(sample, ts=chosen["ts"], det=chosen["det"], dist=chosen["dist"])
             qr = info.get("qr")
+            if entry.get("settings_lost"):
+                notes.append(f"{slot.role} SETTINGS LOST ({entry['settings_lost']})")
             notes.append(f"{slot.role} {entry['offset_ms']:+.0f}ms score {info['score']} ({info['clear']}/{info['candidates']} clear"
                          + (f", {info['shoe_check']}" if "shoe_check" in info else "")
                          + ((f", QR readable ({qr.get('by')})" if qr["readable"] else

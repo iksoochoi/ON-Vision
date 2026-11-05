@@ -129,6 +129,14 @@ def capture_problem(status, source, results, per_camera, burst=None):
          cuts=len(results), pass_id=burst or (results[0]["id"] if results else "-"))
 
 
+def capture_settings_lost(source, sample_id, lost):
+    """A capture whose pictures were taken with other exposure / ISO than the settings say (the camera lost its settings,
+    see camera/settings_guard.py). The sets are saved and marked; no alert: CAMERA_SETTINGS_LOST has told already."""
+    detail = "; ".join(f"{role}: {why}" for role, why in lost.items())
+    emit("CAPTURE_SETTINGS_LOST", "WARNING", f"{source} capture {sample_id} was taken with other settings than asked for "
+         f"({detail})", alert=False, cameras=",".join(lost))
+
+
 def capture_lost(status, source, text):
     """A capture that never reached the saving: status DROPPED (the writer was backed up) or SKIPPED (no picture
     from the reference camera). text: what capture_log.event was given."""

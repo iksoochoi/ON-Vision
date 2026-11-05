@@ -99,14 +99,15 @@ def _run_text():
             f"shoes={len(_run['shoes'])} dropped={_run['dropped']} skipped={_run['skipped']}")
 
 
-def job(source, results, shoe, expected, took, totals, burst=None):
+def job(source, results, shoe, expected, took, totals, burst=None, settings_lost=None):
     """One capture that ran the image saving.
 
     results  one dict per cut (a manual capture has one, a shoe pass up to three):
              {"id", "saved": [roles with a saved picture], "missing": {role: reason}, "error": text or None}
     shoe     (text, source, others) of the QR value, or (None, None, [])
     expected the cameras that should each have a picture in every cut (all configured cameras)
-    totals   what is saved now: {"sets", "cuts", "images", "shoes", "no_id_sets"}"""
+    totals   what is saved now: {"sets", "cuts", "images", "shoes", "no_id_sets"}
+    settings_lost  {role: what differs}: cameras whose pictures were taken with other settings than asked for"""
     if not results:
         return
     cuts, per_camera, saved_total = len(results), [], 0
@@ -125,6 +126,8 @@ def job(source, results, shoe, expected, took, totals, burst=None):
     status = "SAVED" if saved_total == wanted else ("FAILED" if saved_total == 0 else "PARTIAL")
     if status != "SAVED":
         _report("capture_problem", status, source, results, per_camera, burst)
+    if settings_lost:
+        _report("capture_settings_lost", source, results[0]["id"], settings_lost)
     if not C.CAPTURE_LOG:
         return
     text, how, others = shoe
@@ -140,7 +143,8 @@ def job(source, results, shoe, expected, took, totals, burst=None):
             _run["shoes"].add(text)
         head = (f"{source:<6} id={results[0]['id']}" + (f" pass={burst}" if burst else "")
                 + f" cuts={cuts} cameras={cameras_ok}/{len(expected)} images={saved_total}/{wanted} {shoe_text}"
-                + f" took={took:.1f}s")
+                + f" took={took:.1f}s"
+                + (f" settings_lost={','.join(settings_lost)}" if settings_lost else ""))
         _write(status, f"{head} | {' '.join(per_camera) if len(per_camera) < 20 else ''}"
                        f" | run: {_run_text()}"
                        f" | total: sets={totals['sets']} cuts={totals['cuts']} images={totals['images']}"

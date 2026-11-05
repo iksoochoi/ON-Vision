@@ -159,8 +159,14 @@ class SampleStore:
             results.append(self._write_set(base_id, meta, images, codes, shoe))
         try:   # the capture log: what was saved, per camera, and how much there is now
             first = sets[0][2]
+            lost = {}   # cameras whose pictures show they did not follow their settings: {role: what differs}
+            for _, _, m in sets:
+                for role, v in (m.get("views") or {}).items():
+                    if v.get("settings_lost"):
+                        lost.setdefault(role, v["settings_lost"])
             capture_log.job(first.get("source") or "?", results, shoe, [r for r, _ in C.CAMERAS],
-                            time.time() - enqueued, self.totals(wait=False), burst=(first.get("burst") or {}).get("id"))
+                            time.time() - enqueued, self.totals(wait=False), burst=(first.get("burst") or {}).get("id"),
+                            settings_lost=lost)
         except Exception as e:  # logging must never get in the way of saving
             print(f"[capture log] failed: {e}")
 

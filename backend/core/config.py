@@ -294,6 +294,10 @@ HEALTH_RESTART_MAX = max(1, _env("ON_HEALTH_RESTART_MAX", 2, int))
 # 30 ms: blurred pictures, no QR codes) gets its settings sent again; when that does not help it is restarted
 # (camera/settings_guard.py). ON_SETTINGS_GUARD=0 switches this off.
 SETTINGS_GUARD = _env("ON_SETTINGS_GUARD", 1, int) != 0
+# Sending the settings again: this many times (a camera that came back from a hiccup usually ignores them, so one try is enough),
+# at most every SETTINGS_RESEND_SEC; if the camera still does not follow, it is restarted at once.
+SETTINGS_RETRIES = max(1, _env("ON_SETTINGS_RETRIES", 1, int))
+SETTINGS_RESEND_SEC = max(1.0, _env("ON_SETTINGS_RESEND_SEC", 5.0, float))
 
 # ---- alerts for failures of the data collection: a Google Chat webhook (backend/health/alerts.py) ------------
 # The webhook URL is a secret (it carries a key and a token): it lives in .env, which is not in git, and is

@@ -10,6 +10,7 @@ from dataclasses import replace
 from datetime import datetime
 
 from ..camera.registry import registry
+from ..camera.settings_guard import mismatch as settings_mismatch
 from ..core import config as C
 from ..core.events import broadcast
 from ..core.state import state, state_lock
@@ -139,6 +140,10 @@ def view_entry(slot, frame, offset):
         "ae": {"exposure_us": ae.pop("exposure_us", None), "iso": ae.pop("iso", None)},
         **ae,
     }
+    if C.SETTINGS_GUARD:   # the picture itself tells whether the camera followed its settings (see camera/settings_guard.py)
+        reason = settings_mismatch(entry["camera"], entry["ae"]["exposure_us"], entry["ae"]["iso"])
+        if reason:
+            entry["settings_lost"] = reason
     crop = getattr(frame, "crop", None)
     if crop is not None:   # zoomed view: the saved picture is this part of the whole view
         entry["zoom_crop"] = [round(v, 4) for v in crop]

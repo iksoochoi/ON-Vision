@@ -243,6 +243,14 @@ function cell(m, role, label) {
     a.classList.add('failed');
   };
   a.appendChild(im);
+  const lost = m.views && m.views[role] && m.views[role].settings_lost;
+  if (lost) {                                 // the camera did not follow its settings: this picture is not like the others
+    a.classList.add('offset');
+    const tag = el('span', 'lostTag', 'Settings lost');
+    tag.title = 'The camera took this picture with other settings than asked for: ' + lost;
+    a.appendChild(tag);
+    a.title += ' · settings lost: ' + lost;
+  }
   shown.push({ m, role });
   const index = shown.length - 1;
   a.onclick = (e) => { e.preventDefault(); openLightbox(index); };
@@ -257,6 +265,12 @@ function renderSets(box) {
     const head = el('div', 'sethead');
     head.append(el('b', '', `Set ${sets.length - i}`), el('span', '', fmtTime(s.time)),
       el('span', '', s.source === 'auto' ? 'Auto' : 'Manual'), el('span', '', `${s.cuts.length} frames`));
+    const lostCams = camOrder.filter((r) => s.cuts.some((m) => m.views && m.views[r] && m.views[r].settings_lost));
+    if (lostCams.length) {
+      const warn = el('span', 'lostNote', `Settings lost: ${lostCams.map((r) => r.toUpperCase()).join(', ')}`);
+      warn.title = 'These cameras took their pictures with other exposure / ISO than the settings say (the picture may be blurred or too bright)';
+      head.appendChild(warn);
+    }
     const del = el('button', 'secondary delBtn', 'Delete set');
     del.title = 'Delete every picture of this set (all cuts, all cameras)';
     del.onclick = () => deleteSet(s, sets.length - i);
