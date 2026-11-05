@@ -127,3 +127,16 @@ Predict 화면에서 **불량 탐지 결과만** 지웁니다. 세트와 사진�
 
 ## PC에서 시험 / 속도 측정
 카메라 없이 폴더만 검사하거나 속도를 잴 때는 [backend/predict/README.md](../backend/predict/README.md)의 `run_folder.py`, `bench.py`를 씁니다.
+
+## 고객 전달용: 불량 모델만 쓴 결과 저장 (기간 지정)
+특정 기간에 저장된 세트를 **배경 제거 없이, 보정(corrections) 없이 불량 모델만** 돌려 사진과 결과를 파일로 저장합니다. 워커의 결과(`captures/.predict`)와 captures 폴더는 건드리지 않고 읽기만 합니다.
+```
+python -m backend.cli.predict_report --from 2026-11-02 --to 2026-11-04 --zip
+```
+- 세트가 있는 컴퓨터(Mac)에서 실행합니다. 다른 폴더를 가리키려면 `--captures <경로>`.
+- 기본은 **QR을 못 읽은 세트도 포함**합니다. QR을 읽은 세트만 하려면 `--qr-only`.
+- 결과는 `exports/predict_raw_20261102_20261104/`: `summary.csv`(세트별 판정 DEFECT/OK/ERROR, 박스 수, 클래스), `detections.csv`(박스마다 카메라·클래스·점수·좌표), `<세트 id>/<카메라>.jpg`(박스를 그린 사진, 긴 변 2000 px), `<세트 id>/result.json`, `manifest.json`(사용한 모델·conf·imgsz), `README.txt`. `--zip`이면 같은 이름의 .zip도 만듭니다.
+- 판정: 사진 중 하나라도 ok 클래스(`ON_PREDICT_OK_CLASSES`)가 아닌 박스가 있으면 DEFECT입니다. 반복 박스·신발 밖 박스를 거르지 않은 **모델 원본 결과**라서 DEFECT 비율이 높게 나옵니다.
+- 옵션: `--originals`(저장된 원본 사진도 복사), `--max-side 0`(박스 그린 사진도 원본 크기), `--conf`, `--imgsz`, `--device`, `--limit N`(시험용).
+- 중간에 멈춰도 **같은 명령을 다시** 실행하면 끝난 세트는 건너뜁니다(모델·conf·imgsz가 같을 때). 처음부터 다시 하려면 `--redo`.
+- 속도: 이 PC(RTX 4060)에서 세트당 약 1초, Mac(mps)은 세트당 약 3초 안팎으로 예상.

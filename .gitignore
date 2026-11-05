@@ -22,6 +22,7 @@ Thumbs.db
 # local settings (each machine has its own; env_mac is a copy of the Mac's, with the webhook secret)
 /.env
 /env_mac
+/mac_env_*
 
 # training work (data, models, scripts) stays on this PC
 /train/
