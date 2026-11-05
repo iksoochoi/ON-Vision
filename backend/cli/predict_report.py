@@ -2,6 +2,7 @@
 
     python -m backend.cli.predict_report --from 2026-11-02 --to 2026-11-04
     python -m backend.cli.predict_report --from 2026-11-02 --to 2026-11-04 --captures /path/to/captures --zip
+    python -m backend.cli.predict_report --from 2026-11-02 --to 2026-11-04 --dry-run      # only count: sets, pictures, size
 
 What it does NOT do (on purpose: the raw output of the model): no shoe segmentation / background removal (the picture is
 predicted as it was saved) and none of the corrections of the Predict page (recurring boxes, off-shoe boxes, fine classes
@@ -17,6 +18,9 @@ go to --out only (default exports/predict_raw_<from>_<to>, which git ignores):
     <out>/<set id>/<camera>.jpg     the picture with the boxes drawn (long side at most --max-side)
     <out>/<set id>/result.json      the boxes of the set (fractions and pixels of the saved picture)
     <out>/<set id>/original/<camera>.jpg   only with --originals: the picture as it was saved
+
+--dry-run predicts nothing and writes nothing: it counts the sets and pictures of the range, adds up the size of the saved
+pictures, and estimates the size of the result folder (the pictures with boxes are measured on a few samples).
 
 A run that stopped can be started again with the same command: the sets already done are skipped (as long as the
 model / --conf / --imgsz are the same; --redo does everything again). Needs backend/predict/requirements.txt."""
@@ -59,6 +63,84 @@ def log(message):
     print(f"{datetime.now().strftime('%H:%M:%S')} {message}", flush=True)
 
 
+def fmt_bytes(n):
+    value = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+
+
+def dry_run(args, ids, out, C, image_path, primary_role, read_picture, time_key):
+    """Count what a run would do (no model, nothing written): sets, pictures, the size of the saved pictures and an estimate of
+    the result folder. The pictures with boxes are estimated from a few samples: scaled to --max-side and encoded like the real
+    ones (the boxes add little)."""
+    import cv2
+    per_day, pictures, missing, total_bytes, files, done = {}, 0, 0, 0, [], 0
+    for sid in ids:
+        day = time_key(sid)[:8]
+        per_day.setdefault(day, [0, 0, 0])[0] += 1
+        if (out / sid / "result.json").exists() and not args.redo:
+            done += 1
+        try:
+            meta = json.loads((C.SETS_DIR / f"{sid}.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            missing += 1
+            continue
+        primary = primary_role(meta)
+        for role in list(meta.get("views") or [primary]):
+            path = image_path(sid, role, primary=role == primary)
+            try:
+                size = path.stat().st_size
+            except OSError:
+                missing += 1
+                continue
+            pictures += 1
+            total_bytes += size
+            per_day[day][1] += 1
+            per_day[day][2] += size
+            files.append((path, size))
+    sample_in = sample_out = 0
+    for path, size in files[::max(1, len(files) // 12)][:12]:   # about 12 pictures spread over the range
+        image = read_picture(path)
+        if image is None:
+            continue
+        if args.max_side and max(image.shape[:2]) > args.max_side:
+            k = args.max_side / max(image.shape[:2])
+            image = cv2.resize(image, (round(image.shape[1] * k), round(image.shape[0] * k)), interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        if ok:
+            sample_in += size
+            sample_out += len(buf)
+    ratio = sample_out / sample_in if sample_in else 1.0
+    boxes_bytes = round(total_bytes * ratio)
+    originals_bytes = total_bytes if args.originals else 0
+    small = len(ids) * 6 * 1024   # result.json per set, the csv files
+    estimate = boxes_bytes + originals_bytes + small
+    print(f"dry run (nothing is predicted or written): {C.CAPTURES_DIR}")
+    print(f"  range     {args.first} ~ {args.last or args.first}" + ("  (only sets with a QR value)" if args.qr_only else "  (all sets, with and without QR value)"))
+    for day, (n_sets, n_pics, n_bytes) in sorted(per_day.items()):
+        print(f"  {day[:4]}-{day[4:6]}-{day[6:]}  {n_sets:5d} sets  {n_pics:6d} pictures  {fmt_bytes(n_bytes):>10}")
+    print(f"  total     {len(ids)} sets, {pictures} pictures, {fmt_bytes(total_bytes)} as saved"
+          + (f" ({missing} pictures or set files missing)" if missing else ""))
+    size_text = f"long side at most {args.max_side} px" if args.max_side else "full size"
+    print(f"  result    pictures with boxes ({size_text}): about {fmt_bytes(boxes_bytes)}"
+          + (f" ({ratio * 100:.0f}% of the saved size, measured on {min(12, len(files))} pictures)" if sample_in else ""))
+    if args.originals:
+        print(f"            + the saved pictures (--originals): {fmt_bytes(originals_bytes)}")
+    print(f"            + result.json / csv: about {fmt_bytes(small)}")
+    print(f"            = about {fmt_bytes(estimate)} in {out}" + ("; the zip is about as large again while it is made" if args.zip else ""))
+    if done:
+        print(f"  already in {out.name}: {done} of {len(ids)} sets (they are skipped; --redo does them again)")
+    try:
+        probe = out if out.exists() else out.parent
+        while not probe.exists():
+            probe = probe.parent
+        print(f"  free disk space at {probe}: {fmt_bytes(shutil.disk_usage(probe).free)}")
+    except OSError:
+        pass
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--from", dest="first", required=True, help="first day, YYYY-MM-DD (by the time in the set id)")
@@ -69,10 +151,13 @@ def main():
     ap.add_argument("--conf", type=float, help="minimum score of a box (default ON_PREDICT_CONF, 0.25)")
     ap.add_argument("--imgsz", type=int, help="model input size (default ON_PREDICT_IMGSZ, 1280)")
     ap.add_argument("--device", help="auto | cpu | mps | 0 (default ON_PREDICT_DEVICE)")
-    ap.add_argument("--max-side", type=int, default=2000, help="long side of the pictures with boxes, 0 = as saved (default 2000)")
+    ap.add_argument("--max-side", type=int, default=2000,
+                    help="long side of the pictures with boxes in pixels (default 2000; larger ones are scaled down, JPEG quality 92); "
+                         "0 = as saved (full size)")
     ap.add_argument("--originals", action="store_true", help="also copy the pictures as they were saved")
     ap.add_argument("--zip", action="store_true", help="also make <out>.zip")
     ap.add_argument("--limit", type=int, default=0, help="only the first N sets (a test)")
+    ap.add_argument("--dry-run", action="store_true", help="only count the sets, pictures and their size; predict and write nothing")
     ap.add_argument("--redo", action="store_true", help="do the sets that are already in --out again")
     args = ap.parse_args()
 
@@ -102,6 +187,9 @@ def main():
     if not ids:
         raise SystemExit(f"no sets from {args.first} to {args.last or args.first} in {C.CAPTURES_DIR}")
     out = Path(args.out).expanduser() if args.out else C.EXPORTS_DIR / f"predict_raw_{first}_{last}"
+    if args.dry_run:
+        dry_run(args, ids, out, C, image_path, primary_role, read_picture, time_key)
+        return
     out.mkdir(parents=True, exist_ok=True)
 
     settings = {"model": C.PREDICT_MODEL.name, "model_size": C.PREDICT_MODEL.stat().st_size, "conf": conf, "imgsz": imgsz,
