@@ -3,13 +3,19 @@
     python -m backend.cli.predict_report --from 2026-11-02 --to 2026-11-04
     python -m backend.cli.predict_report --from 2026-11-02 --to 2026-11-04 --captures /path/to/captures --zip
     python -m backend.cli.predict_report --from 2026-11-02 --to 2026-11-04 --dry-run      # only count: sets, pictures, size
+    python -m backend.cli.predict_report --from 2026-11-02 --to 2026-11-04 --seg          # background removed first
 
 What it does NOT do (on purpose: the raw output of the model): no shoe segmentation / background removal (the picture is
 predicted as it was saved) and none of the corrections of the Predict page (recurring boxes, off-shoe boxes, fine classes
 are not left out). A set is "defect" when any picture has a box of a class that is not an ok class (ON_PREDICT_OK_CLASSES).
 
+--seg: like the worker, the shoe segmentation model cuts the shoe out first and the defect model looks at the shoe on flat grey
+(ON_PREDICT_SEG_MODEL / _IMGSZ / _CONF / _GROW; ON_PREDICT_SEG itself does not matter here). The boxes are drawn on that grey
+picture, the one the model saw. A picture where no shoe was found is predicted as it was saved, like in the worker, and
+summary.csv says so (column no_shoe_found). The corrections stay off. Default --out: exports/predict_seg_<from>_<to>.
+
 The captures folder is only READ. The predictions of the worker (captures/.predict) are not touched either: the results
-go to --out only (default exports/predict_raw_<from>_<to>, which git ignores):
+go to --out only (default exports/predict_raw_<from>_<to>, or predict_seg_ with --seg, which git ignores):
 
     <out>/README.txt                what the folder contains
     <out>/manifest.json             range, settings (model, conf, imgsz ...), counts
@@ -37,12 +43,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))   # also runnable as a plain file
 
-README = """Defect detection results (raw model output)
+README = """Defect detection results ({title})
 
 Model: {model} (conf >= {conf}, imgsz {imgsz}), predicted {created}.
 Sets: {first} ~ {last}, {sets} sets, {pictures} pictures.
-Not used: shoe segmentation / background removal, and the corrections of the Predict page. Every picture was given to the
-defect model as it was saved, and every box it found is listed.
+{method}
 
 summary.csv        one row per set: verdict (DEFECT = a box of a class that is not an ok class, OK, ERROR), boxes, classes
 detections.csv     one row per box: set, camera, class, score, box (pixels of the saved picture)
@@ -50,6 +55,12 @@ detections.csv     one row per box: set, camera, class, score, box (pixels of th
 <set id>/result.json    the same boxes for the set, as fractions and pixels
 Set ids look like <shoe QR value>_<date>_<time>_<ms>; a set without a QR value is only <date>_<time>_<ms>.
 """
+METHOD_RAW = """Not used: shoe segmentation / background removal, and the corrections of the Predict page. Every picture was given to the
+defect model as it was saved, and every box it found is listed."""
+METHOD_SEG = """Background removed first: the shoe segmentation model ({seg_model}) cut the shoe out and everything else was made flat grey.
+The defect model saw that grey picture, and the pictures here show it. Background removed in {removed} of {pictures} pictures
+({per_camera}); a picture where no shoe was found was predicted as it was saved (column no_shoe_found of summary.csv).
+Not used: the corrections of the Predict page. Every box the defect model found is listed."""
 
 
 def parse_day(text):
@@ -126,6 +137,8 @@ def dry_run(args, ids, out, C, image_path, primary_role, read_picture, time_key)
     size_text = f"long side at most {args.max_side} px" if args.max_side else "full size"
     print(f"  result    pictures with boxes ({size_text}): about {fmt_bytes(boxes_bytes)}"
           + (f" ({ratio * 100:.0f}% of the saved size, measured on {min(12, len(files))} pictures)" if sample_in else ""))
+    if args.seg:
+        print("            (--seg: measured without the grey background, the real pictures are smaller)")
     if args.originals:
         print(f"            + the saved pictures (--originals): {fmt_bytes(originals_bytes)}")
     print(f"            + result.json / csv: about {fmt_bytes(small)}")
@@ -146,7 +159,8 @@ def main():
     ap.add_argument("--from", dest="first", required=True, help="first day, YYYY-MM-DD (by the time in the set id)")
     ap.add_argument("--to", dest="last", help="last day (included), YYYY-MM-DD (default: the first day)")
     ap.add_argument("--captures", help="the captures folder (default ON_CAPTURES_DIR / captures); only read")
-    ap.add_argument("--out", help="where to write (default exports/predict_raw_<from>_<to>)")
+    ap.add_argument("--out", help="where to write (default exports/predict_raw_<from>_<to>, with --seg predict_seg_<from>_<to>)")
+    ap.add_argument("--seg", action="store_true", help="remove the background with the shoe segmentation model first, like the worker")
     ap.add_argument("--qr-only", action="store_true", help="only the sets whose shoe QR value was read (default: all sets)")
     ap.add_argument("--conf", type=float, help="minimum score of a box (default ON_PREDICT_CONF, 0.25)")
     ap.add_argument("--imgsz", type=int, help="model input size (default ON_PREDICT_IMGSZ, 1280)")
@@ -186,14 +200,18 @@ def main():
         ids = ids[:args.limit]
     if not ids:
         raise SystemExit(f"no sets from {args.first} to {args.last or args.first} in {C.CAPTURES_DIR}")
-    out = Path(args.out).expanduser() if args.out else C.EXPORTS_DIR / f"predict_raw_{first}_{last}"
+    if args.seg and not C.PREDICT_SEG_MODEL.exists():
+        raise SystemExit(f"--seg: segmentation model not found ({C.PREDICT_SEG_MODEL})")
+    out = Path(args.out).expanduser() if args.out else C.EXPORTS_DIR / f"predict_{'seg' if args.seg else 'raw'}_{first}_{last}"
     if args.dry_run:
         dry_run(args, ids, out, C, image_path, primary_role, read_picture, time_key)
         return
     out.mkdir(parents=True, exist_ok=True)
 
+    seg_settings = {"model": f"{C.PREDICT_SEG_MODEL.parent.name}/{C.PREDICT_SEG_MODEL.name}", "model_size": C.PREDICT_SEG_MODEL.stat().st_size,
+                    "imgsz": C.PREDICT_SEG_IMGSZ, "conf": C.PREDICT_SEG_CONF, "grow": C.PREDICT_SEG_GROW} if args.seg else False
     settings = {"model": C.PREDICT_MODEL.name, "model_size": C.PREDICT_MODEL.stat().st_size, "conf": conf, "imgsz": imgsz,
-                "segmentation": False, "corrections": False, "ok_classes": ok_classes}
+                "segmentation": seg_settings, "corrections": False, "ok_classes": ok_classes}
     old = out / "manifest.json"
     if old.exists() and not args.redo:
         try:
@@ -209,10 +227,18 @@ def main():
     torch.set_num_threads(C.PREDICT_THREADS)
     model, device = engine.load(C.PREDICT_MODEL, args.device or C.PREDICT_DEVICE)
     engine.predict(model, device, np.zeros((64, 64, 3), np.uint8), imgsz, conf)   # warm-up
+    seg_model = seg_device = None
+    if args.seg:
+        from backend.predict import segment
+        from backend.storage import cutout
+        seg_model, seg_device = segment.load_warm(C.PREDICT_SEG_MODEL, args.device or C.PREDICT_DEVICE, C.PREDICT_SEG_IMGSZ, C.PREDICT_SEG_CONF, log)
     log(f"{len(ids)} sets of {args.first} ~ {args.last or args.first} from {C.CAPTURES_DIR}: model {C.PREDICT_MODEL.name} on {device}, "
-        f"imgsz {imgsz}, conf {conf}, no segmentation, no corrections -> {out}")
+        f"imgsz {imgsz}, conf {conf}, "
+        + (f"background removal on {seg_device} (imgsz {C.PREDICT_SEG_IMGSZ}, conf {C.PREDICT_SEG_CONF}, grow {C.PREDICT_SEG_GROW})" if args.seg else "no segmentation")
+        + f", no corrections -> {out}")
 
     rows, boxes, done, skipped_sets, started = [], [], 0, 0, time.time()
+    seg_counts = {}   # camera -> [pictures with the background removed, pictures]
     for n, sid in enumerate(ids, 1):
         folder = out / sid
         doc = None
@@ -238,15 +264,26 @@ def main():
                     errors[role] = "picture missing" if not path.exists() else "picture cannot be read"
                     continue
                 h, w = image.shape[:2]
-                res = engine.predict(model, device, image, imgsz, conf)
+                look, seg = image, None
+                if args.seg:
+                    try:
+                        found = segment.predict(seg_model, seg_device, image, C.PREDICT_SEG_IMGSZ, C.PREDICT_SEG_CONF)
+                        seg = {k: found[k] for k in ("found", "count", "ms", "conf", "area") if k in found}
+                        if found["found"]:
+                            look = cutout.cutout(image, found["polygon"], C.PREDICT_SEG_GROW)
+                    except Exception as e:   # a picture the segmentation could not do is predicted as it is
+                        seg = {"found": False, "error": f"{type(e).__name__}: {e}"}
+                res = engine.predict(model, device, look, imgsz, conf)
                 dets = [{"class": d["class"], "conf": d["conf"],
                          "box": [round(d["box"][0] / w, 4), round(d["box"][1] / h, 4), round(d["box"][2] / w, 4), round(d["box"][3] / h, 4)],
                          "box_px": [round(v) for v in d["box"]]} for d in res["detections"]]
-                write_jpg(folder / f"{role}.jpg", draw(image, dets, False, ok_classes, args.max_side))
+                write_jpg(folder / f"{role}.jpg", draw(look, dets, False, ok_classes, args.max_side))
                 if args.originals:
                     (folder / "original").mkdir(exist_ok=True)
                     shutil.copyfile(path, folder / "original" / f"{role}.jpg")
                 views[role] = {"image": f"{role}.jpg", "original_size": [w, h], "predict_ms": res["ms"], "detections": dets}
+                if seg is not None:
+                    views[role]["seg"] = seg
             all_dets = [d for v in views.values() for d in v["detections"]]
             doc = {"id": sid, "shoe_id": meta.get("shoe_id"), "timestamp": meta.get("timestamp"),
                    "defect": predictions.is_defect(all_dets, ok_classes) if views else None, "count": len(all_dets),
@@ -256,8 +293,15 @@ def main():
             if done % 10 == 0 or n == len(ids):
                 rate = (time.time() - started) / done
                 log(f"{n}/{len(ids)} sets, about {rate:.1f} s per set, {rate * (len(ids) - n) / 60:.0f} min left")
-        classes = {}
+        classes, no_shoe = {}, []
         for role, v in doc["views"].items():
+            if args.seg:
+                counts = seg_counts.setdefault(role, [0, 0])
+                counts[1] += 1
+                if (v.get("seg") or {}).get("found"):
+                    counts[0] += 1
+                else:
+                    no_shoe.append(role)
             for d in v["detections"]:
                 classes[d["class"]] = classes.get(d["class"], 0) + 1
                 boxes.append({"set": sid, "camera": role, "class": d["class"], "score": d["conf"],
@@ -266,10 +310,13 @@ def main():
         rows.append({"set": sid, "shoe_id": doc.get("shoe_id") or "", "time": doc.get("timestamp") or "", "verdict": verdict,
                      "boxes": doc["count"], "classes": "; ".join(f"{k} x{v}" for k, v in sorted(classes.items())),
                      "cameras": ",".join(doc["views"]), "missing": ",".join(doc.get("errors") or {})})
+        if args.seg:
+            rows[-1]["no_shoe_found"] = ",".join(no_shoe)
 
     if not rows:
         raise SystemExit("no set could be read")
-    for name, data, fields in (("summary.csv", rows, ["set", "shoe_id", "time", "verdict", "boxes", "classes", "cameras", "missing"]),
+    summary_fields = ["set", "shoe_id", "time", "verdict", "boxes", "classes", "cameras", "missing"] + (["no_shoe_found"] if args.seg else [])
+    for name, data, fields in (("summary.csv", rows, summary_fields),
                                ("detections.csv", boxes, ["set", "camera", "class", "score", "x0", "y0", "x1", "y1"])):
         with open(out / name, "w", newline="", encoding="utf-8-sig") as f:   # utf-8-sig: Excel reads it right
             writer = csv.DictWriter(f, fieldnames=fields)
@@ -278,18 +325,26 @@ def main():
     pictures = sum(len(r["cameras"].split(",")) for r in rows if r["cameras"])
     created = datetime.now().isoformat(timespec="seconds")
     verdicts = {v: sum(1 for r in rows if r["verdict"] == v) for v in ("DEFECT", "OK", "ERROR")}
+    removed = sum(c[0] for c in seg_counts.values())
+    per_camera = ", ".join(f"{role} {c[0]}/{c[1]}" for role, c in seg_counts.items())
     (out / "manifest.json").write_text(json.dumps({
         "created": created, "from": args.first, "to": args.last or args.first, "captures": str(C.CAPTURES_DIR),
         "qr_only": args.qr_only, "sets": len(rows), "pictures": pictures, "boxes": len(boxes), "verdicts": verdicts,
-        "settings": settings, "device": device, "max_side": args.max_side, "originals": args.originals}, indent=2, ensure_ascii=False),
-        encoding="utf-8")
+        "settings": settings, "device": device, "max_side": args.max_side, "originals": args.originals,
+        **({"background_removed": {role: {"removed": c[0], "pictures": c[1]} for role, c in seg_counts.items()}} if args.seg else {})},
+        indent=2, ensure_ascii=False), encoding="utf-8")
     times = sorted(r["time"] for r in rows if r["time"])
-    (out / "README.txt").write_text(README.format(model=C.PREDICT_MODEL.name, conf=conf, imgsz=imgsz, created=created,
+    method = (METHOD_SEG.format(seg_model=seg_settings["model"], removed=removed, pictures=pictures, per_camera=per_camera)
+              if args.seg else METHOD_RAW)
+    (out / "README.txt").write_text(README.format(title="background removed, then the defect model" if args.seg else "raw model output",
+                                                  method=method, model=C.PREDICT_MODEL.name, conf=conf, imgsz=imgsz, created=created,
                                                   first=times[0][:10] if times else "-", last=times[-1][:10] if times else "-",
                                                   sets=len(rows), pictures=pictures, ok=", ".join(ok_classes) or "-"), encoding="utf-8")
     if args.zip:
         log("making the zip ...")
         shutil.make_archive(str(out), "zip", root_dir=out)
+    if args.seg:
+        log(f"background removed in {removed} of {pictures} pictures: {per_camera}")
     log(f"done: {len(rows)} sets ({verdicts['DEFECT']} defect, {verdicts['OK']} ok, {verdicts['ERROR']} error), {len(boxes)} boxes, "
         f"{skipped_sets} sets were already in {out.name} -> {out}" + (f" and {out}.zip" if args.zip else ""))
 

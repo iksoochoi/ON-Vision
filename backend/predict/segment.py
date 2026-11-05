@@ -6,6 +6,8 @@ Needs the packages of backend/predict/requirements.txt, like engine.py."""
 
 import time
 
+import numpy as np
+
 from ..storage import cutout as cut
 from . import engine
 
@@ -32,3 +34,16 @@ def predict(model, device, image, imgsz, conf):
 def load(model_path, device="auto"):
     """The segmentation model, loaded once (engine.load does it). Returns (model, device)."""
     return engine.load(model_path, device)
+
+
+def load_warm(model_path, device, imgsz, conf, log):
+    """load(), with a first prediction (it is slow). A device that cannot do this model: the processor does it."""
+    model, used = load(model_path, device)
+    blank = np.zeros((64, 64, 3), np.uint8)
+    try:
+        predict(model, used, blank, imgsz, conf)
+    except Exception as e:
+        log(f"segmentation on {used} failed ({type(e).__name__}: {e}): using the cpu for it")
+        model, used = load(model_path, "cpu")
+        predict(model, used, blank, imgsz, conf)
+    return model, used

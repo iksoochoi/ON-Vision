@@ -165,14 +165,7 @@ def main():
         if not C.PREDICT_SEG_MODEL.exists():
             log(f"WARNING: segmentation model not found ({C.PREDICT_SEG_MODEL}): the pictures are predicted as they were saved")
         else:
-            seg_model, seg_device = segment.load(C.PREDICT_SEG_MODEL, C.PREDICT_DEVICE)
-            blank = np.zeros((64, 64, 3), np.uint8)
-            try:
-                segment.predict(seg_model, seg_device, blank, C.PREDICT_SEG_IMGSZ, C.PREDICT_SEG_CONF)   # warm-up
-            except Exception as e:   # e.g. a device that cannot do this model: the processor does it
-                log(f"segmentation on {seg_device} failed ({type(e).__name__}: {e}): using the cpu for it")
-                seg_model, seg_device = segment.load(C.PREDICT_SEG_MODEL, "cpu")
-                segment.predict(seg_model, seg_device, blank, C.PREDICT_SEG_IMGSZ, C.PREDICT_SEG_CONF)
+            seg_model, seg_device = segment.load_warm(C.PREDICT_SEG_MODEL, C.PREDICT_DEVICE, C.PREDICT_SEG_IMGSZ, C.PREDICT_SEG_CONF, log)
             seg = (seg_model, seg_device, segment)
     log("background removal: " + (f"ON, {SEG_NAME} on {seg[1]}, imgsz {C.PREDICT_SEG_IMGSZ}, conf {C.PREDICT_SEG_CONF}, "
                                  f"grow {C.PREDICT_SEG_GROW}" if seg else "off"))
