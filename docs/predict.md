@@ -54,7 +54,7 @@ git pull
   - **Class mAP50**: 모델이 그 클래스를 자기 검증 사진에서 얼마나 잘 찾았는지(`backend/models/defect_detection/class_metrics.json`, 학습 로그에서 옮긴 값). 0.5 이상 초록, 0.2 미만 노랑. 검출 하나의 정확도가 아니라 **모델의 그 클래스에 대한 평소 성능**입니다.
   - **Sharp**: 그 카메라 사진의 선명도(세트 JSON의 `sharpness`). 같은 카메라끼리 비교하세요. 카메라 칸 제목에도 나옵니다.
   - **검출 개수**: 카메라 칸 제목의 `N found`.
-- **보정(corrections, 기본 켬)**: 화면 왼쪽 위 `Apply corrections` 체크로 켜고 끕니다. 아래에 해당하는 검출은 **판정에서 뺍니다**(사진에서는 점선과 흐리게, 이유가 붙고, 검출 표 `Verdict` 열에 이유가 나옵니다).
+- **보정(corrections, 기본 꺼짐)**: 화면 왼쪽 위 `Apply corrections` 체크로 켜고 끕니다(시작 상태는 `ON_PREDICT_CORRECT`). 아래에 해당하는 검출은 **판정에서 뺍니다**(사진에서는 점선과 흐리게, 이유가 붙고, 검출 표 `Verdict` 열에 이유가 나옵니다).
   - **recurring(반복)**: 같은 카메라에서 **같은 클래스가 같은 자리**(IoU `ON_PREDICT_RECUR_IOU` 0.5 이상)에 **다른 세트 `ON_PREDICT_RECUR_MIN`(10)개 이상**에서도 나온 것. 한 신발의 불량이 대부분 신발의 같은 픽셀에 있을 수는 없으므로, 배경이나 모델이 모든 신발에서 읽어 내는 것(로고, 글씨)으로 봅니다. `Recurs` 열이 그 개수입니다.
   - **off shoe**: 박스가 신발 영역 밖(`unknown`은 남김).
   - **fine**: `ON_PREDICT_OK_CLASSES`의 클래스.
@@ -112,7 +112,7 @@ Predict 화면에서 **불량 탐지 결과만** 지웁니다. 세트와 사진�
 | `ON_PREDICT_MAX_BACKLOG` | `100` | 밀리면 최신 이 개수만, 오래된 것은 건너뜀 |
 | `ON_PREDICT_ON_SHOE_MIN` | `0.5` | 박스의 이만큼이 신발 영역 안에 있으면 `on shoe` (앱이 읽음, 화면 표시용) |
 | `ON_PREDICT_SHOE_MAX_AREA` | `0.8` | 신발 영역이 사진의 이 비율을 넘으면 믿지 않고 `unknown` |
-| `ON_PREDICT_CORRECT` | `1` | 화면이 보정을 켠 채로 시작(화면에서 바꿀 수 있음) |
+| `ON_PREDICT_CORRECT` | `0` | 1이면 화면이 보정(Apply corrections)을 켠 채로 시작. 기본은 꺼짐(모델 원래 판정). 화면에서 바꿀 수 있음 |
 | `ON_PREDICT_RECUR_MIN` | `10` | 같은 자리·같은 클래스가 이 개수 이상의 다른 세트에 있으면 반복 |
 | `ON_PREDICT_RECUR_IOU` | `0.5` | 같은 자리로 보는 박스 겹침(IoU) 기준 |
 | `ON_PREDICT_EXPORT_MAX_SIDE` | `2000` | 저장하는 박스 사진의 긴 변(0 = 원본 크기) |
