@@ -46,14 +46,20 @@ def build_pipeline(pipeline, slot, slow_usb=False):
         full = cam.requestFullResolutionOutput(
             type=dai.ImgFrame.Type.NV12, fps=cap_fps, useHighestResolution=True,
         )
+    jpeg = C.CAPTURE_MJPEG
+    if jpeg:   # compressed on the camera: about 1/5 of the USB traffic at quality 90 (backend/camera/jpeg_frame.py on the host)
+        encoder = pipeline.create(dai.node.VideoEncoder).build(
+            full, frameRate=cap_fps, profile=dai.VideoEncoderProperties.Profile.MJPEG, quality=C.CAPTURE_MJPEG_QUALITY)
+        full = encoder.out
     preview = cam.requestOutput(size=slot.preview_size, type=dai.ImgFrame.Type.NV12, fps=pv_fps)
     cw, ch = slot.capture_size or (4056, 3040)
     pw, ph = slot.preview_size
-    load = (cw * ch * cap_fps + pw * ph * pv_fps) * 1.5 / 1e6
-    print(f"[{slot.role}] streams: capture {cw}x{ch}@{cap_fps:g}fps + preview {pw}x{ph}@{pv_fps:g}fps"
-          f" = ~{load:.0f} MB/s (USB3 carries ~300, USB2 ~30)")
+    capture_mb = cw * ch * cap_fps * 1.5 / 1e6 / (5 if jpeg else 1)   # JPEG: a rough guess, it depends on the picture (the app log shows the real size)
+    load = capture_mb + pw * ph * pv_fps * 1.5 / 1e6
+    print(f"[{slot.role}] streams: capture {cw}x{ch}@{cap_fps:g}fps{' MJPEG q%d' % C.CAPTURE_MJPEG_QUALITY if jpeg else ''}"
+          f" + preview {pw}x{ph}@{pv_fps:g}fps = ~{load:.0f} MB/s{' (estimate)' if jpeg else ''} (USB3 carries ~300, USB2 ~30)")
 
-    queues = {"classes": [], "det": None}
+    queues = {"classes": [], "det": None, "jpeg": jpeg}
     if slot.is_trigger:   # only the reference camera detects; switching it rebuilds both cameras
         if C.DETECTOR == "model":
             archive = _load_archive(pipeline)

@@ -137,6 +137,9 @@ class RotatedFrame:
         gray = crop_gray(self._frame, box)
         if gray is not None:
             return rotate_image(gray, self.rotation)
+        if hasattr(self._frame, "getGray"):   # a JPEG frame: its grey decode, no colour picture needed
+            gray = rotate_image(self._frame.getGray(), self.rotation)
+            return gray if self.crop is None else crop_image(gray, self.crop)
         return cv2.cvtColor(self.getCvFrame(), cv2.COLOR_BGR2GRAY)
 
     def __getattr__(self, name):

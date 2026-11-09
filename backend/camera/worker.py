@@ -33,6 +33,7 @@ from ..detect.model import poll_detections, msg_ts
 from ..health import collect
 from .controls import (FOCUS_SETTLE_SEC, apply_exposure, apply_focus, apply_isp, apply_lens, isp_setters,
                        lens_position)
+from .jpeg_frame import JpegFrame
 from .device import (KNOWN_DEVICE_RETRY_SEC, KNOWN_DEVICE_TRIES, NOT_FOUND_RETRY_SEC, SLOW_USB, DeviceNotFound,
                      claim_device, print_assignment, release_device, usb_speed)
 from .overlay import draw_label, draw_overlay
@@ -43,7 +44,8 @@ from .settings_guard import GIVE_UP_AFTER, SettingsGuard
 RETRY_SEC = 5
 ESCALATE_EVERY_SEC = 600.0   # a camera that ignores its settings is restarted at most this often
 RESUME_GAP_SEC = 3.0         # pictures that come back after a pause this long: the camera may have lost its settings
-RECONNECT_ATTEMPTS = 3       # depthai's own reconnection after a device crash (then the camera is restarted, see below)
+JPEG_REPORT_SEC = 60.0       # ON_CAPTURE_MJPEG: the real JPEG size and USB traffic go to the app log this often
+RECONNECT_ATTEMPTS = 3      # depthai's own reconnection after a device crash (then the camera is restarted, see below)
 
 _BOOT_LOCK = threading.Lock()   # boot one OAK at a time; simultaneous USB boots are unreliable
 _escalated = {}                 # role -> when its camera was last restarted because it ignored its settings
@@ -76,6 +78,23 @@ def _camera_loop(slot, pipeline, q, stop):
     guard = SettingsGuard() if C.SETTINGS_GUARD else None   # does the camera follow the exposure it was told to use?
     last_frame = None     # when the last picture came (a pause in the pictures: see RESUME_GAP_SEC)
 
+    jpeg_stats = {"since": time.monotonic(), "frames": 0, "bytes": 0}
+
+    def next_full():   # the next capture-size frame, a JPEG one wrapped (ON_CAPTURE_MJPEG)
+        msg = q["full"].tryGet()
+        if msg is None or not q.get("jpeg"):
+            return msg
+        frame = JpegFrame(msg)
+        jpeg_stats["frames"] += 1
+        jpeg_stats["bytes"] += frame.jpeg().size
+        elapsed = time.monotonic() - jpeg_stats["since"]
+        if elapsed >= JPEG_REPORT_SEC:   # how much the camera really sends (the size depends on the picture)
+            n, size = jpeg_stats["frames"], jpeg_stats["bytes"]
+            print(f"[{role}] capture JPEG: {size / n / 1e6:.2f} MB per picture, {n / elapsed:.1f} fps, "
+                  f"{size / elapsed / 1e6:.1f} MB/s over USB")
+            jpeg_stats.update(since=time.monotonic(), frames=0, bytes=0)
+        return frame
+
     while not stop.is_set() and pipeline.isRunning():
         if slot.take_restart():
             print(f"[{role}] restarting with new settings")
@@ -91,7 +110,7 @@ def _camera_loop(slot, pipeline, q, stop):
                 bg_frames = []
 
         crop = slot.view_crop()   # zoom of the view (None = whole view); never on the reference camera
-        frame = q["full"].tryGet()
+        frame = next_full()
         # small luma copies: for the sharpest-frame pick and, on the reference camera, the adjacent shots
         need_gray = C.PICK_BEST or C.PICK_WINDOW_SEC > 0 or (slot.is_trigger and C.ADJACENT)
         got_frame = frame is not None
@@ -114,7 +133,7 @@ def _camera_loop(slot, pipeline, q, stop):
             if C.PICK_BEST and not slot.is_trigger:   # the empty belt, to tell later whether a shoe is in the picture
                 presence.observe(role, gray, rotation)
             slot.count("full")
-            frame = q["full"].tryGet()
+            frame = next_full()
 
         params = slot.snapshot_params()
         apply_isp(q["control"], setters, params, last_cam)

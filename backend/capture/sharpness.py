@@ -18,7 +18,15 @@ SCORE_SCALE = 1000  # only makes the numbers easy to read
 
 def luma_small(frame, rotation=0):
     """Brightness plane of an NV12 frame, shrunk SHRINK times and rotated like the saved picture.
-    None when the frame does not offer it (the frame is then simply not a pick candidate)."""
+    None when the frame does not offer it (the frame is then simply not a pick candidate).
+    A JPEG frame (backend/camera/jpeg_frame.py) is decoded at that small size directly."""
+    reduced = getattr(frame, "luma_reduced", None)
+    if reduced is not None:
+        try:
+            small = reduced(SHRINK)
+        except (cv2.error, KeyError):
+            small = None
+        return None if small is None else rotate_image(small, rotation)
     try:
         h, w = frame.getHeight(), frame.getWidth()
         luma = frame.getFrame()[:h]   # NV12: the first h rows are the brightness plane

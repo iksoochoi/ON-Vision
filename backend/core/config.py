@@ -146,6 +146,16 @@ SIDE_FPS = _env("ON_SIDE_FPS", 5, float)            # capture-size fps of the no
 SIDE_PREVIEW_SIZE = (640, 480)
 SIDE_PREVIEW_FPS = _env("ON_SIDE_PREVIEW_FPS", 8, float)
 RING_SEC = _env("ON_RING_SEC", 2.5, float)          # how long each camera keeps frames for matching
+# The capture-size stream compressed to JPEG on the camera (its MJPEG encoder) instead of raw NV12: about 1/5 of the
+# USB traffic at quality 90 (1/3.5 at 95; measured on saved 4000x3000 pictures, the camera's own pictures may differ).
+# 4000x3000 at ~9.5 fps raw is ~170 MB/s per camera; the crash dumps of 2026-11-09 showed the USB transfer stopping,
+# then the camera's watchdog resetting it. The host keeps the JPEG and decodes only what it needs (a 1/4-size grey
+# copy of every frame for the sharpness, ~40 ms per frame on the PC; the full picture for the chosen frames and the
+# QR scan). The app log shows the real JPEG size per camera every minute.
+# 0 = raw NV12 as before. ON_CAPTURE_MJPEG_QUALITY: JPEG quality on the camera (the saved file is encoded again with
+# ON_JPEG_QUALITY).
+CAPTURE_MJPEG = _env("ON_CAPTURE_MJPEG", 0, int) != 0
+CAPTURE_MJPEG_QUALITY = max(1, min(100, _env("ON_CAPTURE_MJPEG_QUALITY", 90, int)))
 # Pick the sharpest frame within +-this many seconds of each shot instead of the one nearest in time.
 # About one frame period (0.12 s at 9 fps). 0 = off: always the nearest frame.
 PICK_WINDOW_SEC = max(0.0, _env("ON_PICK_WINDOW_SEC", 0.12, float))
