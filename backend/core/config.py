@@ -152,10 +152,11 @@ RING_SEC = _env("ON_RING_SEC", 2.5, float)          # how long each camera keeps
 # then the camera's watchdog resetting it. The host keeps the JPEG and decodes only what it needs (a 1/4-size grey
 # copy of every frame for the sharpness, ~40 ms per frame on the PC; the full picture for the chosen frames and the
 # QR scan). The app log shows the real JPEG size per camera every minute.
-# 0 = raw NV12 as before. ON_CAPTURE_MJPEG_QUALITY: JPEG quality on the camera (the saved file is encoded again with
-# ON_JPEG_QUALITY).
+# 0 = raw NV12 as before. ON_CAPTURE_MJPEG_QUALITY: JPEG quality on the camera; a camera without rotation or zoom saves
+# that JPEG as it came (one compression, as with NV12 + ON_JPEG_QUALITY before), a rotated or zoomed one is encoded
+# again with ON_JPEG_QUALITY. 95 keeps the quality of before (~47 MB/s per camera), 90 ~30 MB/s with a little less detail.
 CAPTURE_MJPEG = _env("ON_CAPTURE_MJPEG", 0, int) != 0
-CAPTURE_MJPEG_QUALITY = max(1, min(100, _env("ON_CAPTURE_MJPEG_QUALITY", 90, int)))
+CAPTURE_MJPEG_QUALITY = max(1, min(100, _env("ON_CAPTURE_MJPEG_QUALITY", 95, int)))
 # Pick the sharpest frame within +-this many seconds of each shot instead of the one nearest in time.
 # About one frame period (0.12 s at 9 fps). 0 = off: always the nearest frame.
 PICK_WINDOW_SEC = max(0.0, _env("ON_PICK_WINDOW_SEC", 0.12, float))

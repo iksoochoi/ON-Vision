@@ -117,13 +117,17 @@ class SampleStore:
         return [sample_id for sample_id, _, _ in items]
 
     @staticmethod
-    def _write_view(sample_id, role, img):
-        ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
-        if not ok:
-            raise RuntimeError("jpeg encode failed")
+    def _write_view(sample_id, role, img, jpeg=None):
+        """jpeg: the camera's own JPEG of exactly this picture (ON_CAPTURE_MJPEG, no rotation or zoom): saved as it
+        came, not encoded a second time (its quality is ON_CAPTURE_MJPEG_QUALITY then, not ON_JPEG_QUALITY)."""
+        if jpeg is None:
+            ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+            if not ok:
+                raise RuntimeError("jpeg encode failed")
+            jpeg = buf
         for root in (CAPTURES_DIR, THUMBS_DIR):
             (root / role).mkdir(parents=True, exist_ok=True)
-        (CAPTURES_DIR / role / f"{sample_id}.jpg").write_bytes(buf.tobytes())
+        (CAPTURES_DIR / role / f"{sample_id}.jpg").write_bytes(jpeg.tobytes())
         h, w = img.shape[:2]
         thumb = cv2.resize(img, (THUMB_WIDTH, max(1, int(h * THUMB_WIDTH / w))),
                            interpolation=cv2.INTER_AREA)
@@ -187,6 +191,10 @@ class SampleStore:
                 continue
             saved[role] = {**info.get(role, {}), "width": img.shape[1], "height": img.shape[0]}
             images[role] = img
+            # the camera's JPEG of exactly this picture (a JpegFrame itself; a rotated or zoomed one is a new picture):
+            # written as it came by _write_set. Kept beside the meta, taken out before the meta is saved.
+            if callable(getattr(type(item), "jpeg", None)):
+                meta.setdefault("_camera_jpeg", {})[role] = item.jpeg()
         meta["views"] = saved
         if missing:
             meta["missing_views"] = missing
@@ -233,11 +241,12 @@ class SampleStore:
         if others:
             meta["shoe_id_other"] = others
         primary = meta["primary_view"]
+        camera_jpeg = meta.pop("_camera_jpeg", {})
         result = {"id": sample_id, "saved": [], "missing": {}, "error": None}
         try:
             for role in list(images):
                 try:
-                    self._write_view(sample_id, role, images[role])
+                    self._write_view(sample_id, role, images[role], camera_jpeg.get(role))
                 except Exception as e:
                     if role == primary:
                         raise
