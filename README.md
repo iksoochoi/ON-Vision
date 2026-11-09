@@ -77,7 +77,7 @@ bash bin/setup_mac.sh                # 처음 한 번: .venv 생성 + 패키지 
 ```
 
 ### 신발 감지 모델 (기준 카메라에서 신발을 찾는 모델)
-`backend/models/shoe_detection/shoe_detection.rvc2.tar.xz`는 이 현장의 신발 사진으로 학습한 OAK(RVC2)용 모델입니다(클래스 `shoe`, 입력 512x384). 저장소에 들어 있고, 쓰려면 `.env`(저장소에 없음, 장비마다 따로 둠)에 아래를 넣고 앱을 다시 시작하세요.
+`backend/models/shoe_detection/shoe_detection.rvc2.tar.xz`는 이 현장의 신발 사진으로 학습한 OAK(RVC2)용 모델입니다(클래스 `shoe`, 입력 512x384). 버전 2(2026-11-09): 2026-10-13 밝은 환경 사진 + 2026-11-02 암막 환경 TOP 사진(train 277장), 위치 이동 증강. val IoU 밝은 환경 0.951 / 암막 0.972(버전 1: 0.936 / 0.883), 신발이 화면에 걸친 경우도 검출. 이전 버전은 git 기록에 있습니다. 저장소에 들어 있고, 쓰려면 `.env`(저장소에 없음, 장비마다 따로 둠)에 아래를 넣고 앱을 다시 시작하세요.
 ```
 ON_DETECTOR=model
 ON_MODEL_ARCHIVE=backend/models/shoe_detection/shoe_detection.rvc2.tar.xz
