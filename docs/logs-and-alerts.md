@@ -39,6 +39,7 @@
 | `CAMERA_SETTINGS_RESTORED` | 카메라가 설정을 다시 따름 | 알린 문제만 |
 | `CAPTURE_SETTINGS_LOST` | 그 캡처의 사진이 설정과 다른 노출/ISO로 찍힘(어느 카메라가 무엇이 다른지). 세트에는 표시가 남음 | 아니오 |
 | `CAMERA_SETTINGS_REAPPLIED` | 사진이 3초 이상 끊겼다 돌아와 설정을 바로 다시 보냄 | 알리지 않음 |
+| `CAMERA_RECONNECTED` | 카메라가 다운(crash)된 뒤 depthai가 자동 재연결함. 재연결된 카메라는 설정이 풀리고 명령을 받지 않아 바로 그 카메라를 재시작함 | 알리지 않음(앞의 `CAMERA_STALLED`가 알림) |
 | `APP_RESTART` | 카메라 재시작이 통하지 않아(`ON_HEALTH_RESTART_MAX`(2)번 해도 멎음, 또는 재시작한 카메라가 60초 안에 다시 ONLINE이 되지 않음) **앱 전체를 종료**함(launchd가 다시 시작) | O |
 | `CAMERA_DOWN` | 카메라가 `ON_HEALTH_OFFLINE_SEC`(60초) 넘게 OFFLINE | O |
 | `CAMERA_FLAPPING` | 10분 안에 3번 OFFLINE이 됨 | O |
@@ -119,6 +120,7 @@ curl -X POST -H "Content-Type: application/json; charset=UTF-8" -d '{"text":"ON-
 - 차이가 **3초** 넘게 이어지면 설정(노출, 초점, 이미지 처리)을 **다시 보냅니다**. 보낸 뒤 4초는 기다리고, 기본은 **1번만** 다시 보냅니다(`ON_SETTINGS_RETRIES`, 최대 횟수. 끊겼다 돌아온 카메라는 대개 다시 보내도 따르지 않아서, 안 되면 바로 재시작하는 쪽이 복구가 빠릅니다). 다시 보내는 간격은 `ON_SETTINGS_RESEND_SEC`(기본 5초)입니다. `CAMERA_SETTINGS_LOST`가 로그에 남고 처음 한 번만 Chat 알림이 갑니다.
 - 다시 보내도 따르지 않으면 `CAMERA_SETTINGS_IGNORED`(ERROR, 알림)를 남기고 **그 카메라만 재시작**합니다(같은 카메라는 10분에 한 번까지). 다시 따르면 `CAMERA_SETTINGS_RESTORED`가 남습니다.
 - 사진이 3초 이상 끊겼다 돌아오면(예: 10-24 12:23 LEFT, 12초) 카메라가 기본값(자동 노출 30 ms)으로 돌아왔을 수 있으므로, 비교를 기다리지 않고 **노출/초점/ISP를 바로 다시 보냅니다**. `CAMERA_SETTINGS_REAPPLIED`(INFO)만 남고 알림은 없습니다.
+- 카메라 자체가 다운되면(`app.log`에 `X_LINK_ERROR`, `Device ... has crashed`) depthai가 약 7초 만에 자동 재연결하지만, 그 카메라는 기본 설정(자동 노출 30 ms)으로 돌아오고 설정 명령도 받지 않습니다(2026-11-02~09의 39건 모두 재전송 실패). 그래서 재연결되면 재전송 없이 **그 카메라를 바로 재시작**합니다(`CAMERA_RECONNECTED`, 약 4초). 이전에는 재전송을 거쳐 재시작까지 15~35초 더 걸렸습니다.
 - **설정이 풀린 채 찍힌 사진은 세트에 표시됩니다.** 촬영한 사진 한 장 한 장의 노출/ISO를 설정과 비교해서, 다르면 세트 JSON의 `views.<카메라>.settings_lost`에 차이를 적습니다(예: `exposure 30.0 ms in the picture, 10.0 ms asked`). Gallery에서는 그 사진에 주황색 `Settings lost` 표시가, 세트 머리글에 `Settings lost: RIGHT`가 나옵니다. `capture.log`의 그 줄 끝에 `settings_lost=right`가, `collect.log`에 `CAPTURE_SETTINGS_LOST`(WARNING, 알림 없음)가 남습니다.
 - 끄려면 `.env`에 `ON_SETTINGS_GUARD=0`(표시도 함께 꺼짐).
 - 코드: `backend/camera/settings_guard.py`(판단), `backend/camera/worker.py`(카메라 루프에서 호출).

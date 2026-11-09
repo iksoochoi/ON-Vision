@@ -43,6 +43,7 @@ from .settings_guard import GIVE_UP_AFTER, SettingsGuard
 RETRY_SEC = 5
 ESCALATE_EVERY_SEC = 600.0   # a camera that ignores its settings is restarted at most this often
 RESUME_GAP_SEC = 3.0         # pictures that come back after a pause this long: the camera may have lost its settings
+RECONNECT_ATTEMPTS = 3       # depthai's own reconnection after a device crash (then the camera is restarted, see below)
 
 _BOOT_LOCK = threading.Lock()   # boot one OAK at a time; simultaneous USB boots are unreliable
 _escalated = {}                 # role -> when its camera was last restarted because it ignored its settings
@@ -239,6 +240,26 @@ def _camera_loop(slot, pipeline, q, stop):
     return False
 
 
+def _on_reconnect(slot):
+    """depthai's callback for its automatic reconnection. When the OAK crashes (X_LINK_ERROR, "Device ... has crashed"),
+    depthai reconnects it by itself in about 7 s, but the camera comes back with its default settings (automatic
+    exposure of 30 ms ...) and no longer takes commands (writing to inputControl fails). 2026-11-02..09: all 39 crashes
+    went like that, and resending the settings never worked. So: restart the camera at once (about 4 s, it gets its
+    settings with the new pipeline) instead of resending first (another 15..35 s of pictures with the wrong settings)."""
+    def callback(status):
+        try:
+            if status == dai.Device.ReconnectionStatus.RECONNECTED:
+                message = "the camera crashed and was reconnected by depthai without its settings: restarting it"
+                print(f"[{slot.role}] {message}")
+                collect.emit("CAMERA_RECONNECTED", "WARNING", message, camera=slot.role, alert=False)
+                slot.request_restart()
+            elif status == dai.Device.ReconnectionStatus.RECONNECT_FAILED:
+                print(f"[{slot.role}] depthai could not reconnect the camera")
+        except Exception as e:   # runs on a depthai thread: never let it raise
+            print(f"[{slot.role}] reconnect callback failed: {e}")
+    return callback
+
+
 def _run_camera_once(slot, stop, claimed_event=None):
     """Open the camera, run it until it stops. Returns True when a restart was requested."""
     try:
@@ -251,6 +272,10 @@ def _run_camera_once(slot, stop, claimed_event=None):
         with _BOOT_LOCK:
             slot.take_restart()   # the settings are applied by this build
             device = dai.Device(info)
+            try:
+                device.setMaxReconnectionAttempts(RECONNECT_ATTEMPTS, _on_reconnect(slot))
+            except Exception as e:   # an older depthai without it: the settings guard still restarts the camera, later
+                print(f"[{slot.role}] reconnect callback not set: {e}")
             slot.usb_speed = usb_speed(device)
             slow = slot.usb_speed in SLOW_USB
             pipeline = dai.Pipeline(device)

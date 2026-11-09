@@ -31,6 +31,7 @@
 | `CAMERA_SETTINGS_IGNORED` | 다시 보내도(기본 1번) 따르지 않아 그 카메라를 재시작함 | O |
 | `CAMERA_SETTINGS_RESTORED` | 카메라가 설정을 다시 따름 | 알린 문제만 |
 | `CAMERA_SETTINGS_REAPPLIED` | 사진이 3초 이상 끊겼다 돌아와 설정을 바로 다시 보냄 | 알리지 않음 |
+| `CAMERA_RECONNECTED` | 카메라가 다운(crash)된 뒤 depthai가 자동 재연결함. 재연결된 카메라는 설정이 풀리고 명령을 받지 않아 바로 그 카메라를 재시작함 | 알리지 않음(앞의 `CAMERA_STALLED`가 알림) |
 | `APP_RESTART` | 카메라 재시작이 통하지 않아(2번 해도 멎음, 또는 재시작한 카메라가 60초 안에 ONLINE이 안 됨) 앱 전체를 종료함(launchd가 다시 시작) | O |
 | `CAMERA_DOWN` | 카메라가 60초 넘게 OFFLINE | O |
 | `CAMERA_FLAPPING` | 10분 안에 3번 OFFLINE이 됨 | O |
