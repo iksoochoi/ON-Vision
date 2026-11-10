@@ -69,13 +69,14 @@ def obs_at(sample, ts):
     return (det, dist) if abs(t - ts) <= OBS_TOL_SEC else (None, None)
 
 
-def _evaluate(slot, center_ts, sample, window):
+def _evaluate(slot, center_ts, sample, window, items=None):
     """Every candidate frame of a camera with what is known about it: {"ts", "frame", "gray", "clear" (True / False /
-    None = could not be told), "shoe" (box and area), "score"}."""
+    None = could not be told), "shoe" (box and area), "score"}. items: the camera's frames of the window taken
+    beforehand (slot.candidates); None = take them now."""
     is_top = slot is registry.trigger
     axes = axes_of(slot.role)
     out = []
-    for fts, frame, gray in slot.candidates(center_ts, window):
+    for fts, frame, gray in (slot.candidates(center_ts, window) if items is None else items):
         ev = {"ts": fts, "frame": frame, "gray": gray, "clear": None, "shoe": None, "score": 0.0, "det": None, "dist": None}
         crop = getattr(frame, "crop", None)
         roi = crop or CENTER_BAND
@@ -110,10 +111,11 @@ def _qr_likely(role, now):
     return now - seen.get("epoch", 0) < QR_SEEN_SEC and bool(seen.get("found") or seen.get("size_px"))
 
 
-def choose(slot, center_ts, sample, use_qr, window=None):
-    """The best frame of one camera: (evaluation dict of the chosen frame, pick info for the JSON), or (None, reason)."""
+def choose(slot, center_ts, sample, use_qr, window=None, items=None):
+    """The best frame of one camera: (evaluation dict of the chosen frame, pick info for the JSON), or (None, reason).
+    items: the camera's frames of the window, taken before any camera was worked on (see Picker.process)."""
     window = C.BEST_WINDOW_SEC if window is None else window
-    cands = _evaluate(slot, center_ts, sample, window)
+    cands = _evaluate(slot, center_ts, sample, window, items)
     if not cands:
         return None, "offline" if not slot.online else "no frame in the window"
     if use_qr:   # the sharpness that matters is the one over the QR band, at full resolution
@@ -206,8 +208,14 @@ class Picker(threading.Thread):
             qr_roles = set(_roles(registry.roles()))
         views, view_meta, missing, notes = {}, {}, {}, []
         part = sample
-        for slot in registry.slots():
-            chosen, info = choose(slot, center_ts, sample, use_qr=slot.role in qr_roles and slot is not trigger)
+        # The frames of every camera are taken first: each camera keeps only ON_RING_SEC of frames, and a slow QR read
+        # on one camera (a label it cannot read, 1-2 s) let the frames of the cameras after it leave their ring
+        # ("no frame in the window": front and right on 2026-11-10, every time left had tried a read)
+        slots = registry.slots()
+        held = {slot.role: slot.candidates(center_ts, C.BEST_WINDOW_SEC) for slot in slots}
+        for slot in slots:
+            chosen, info = choose(slot, center_ts, sample, use_qr=slot.role in qr_roles and slot is not trigger,
+                                  items=held[slot.role])
             if chosen is None:
                 missing[slot.role] = info
                 notes.append(f"{slot.role} left out ({info})")
