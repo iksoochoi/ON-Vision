@@ -6,10 +6,11 @@
         <shoe>/<set>/<id>_<camera>.jpg           the pictures of that frame, as saved (full size)
 
 <shoe> is the shoe's QR value as it goes in file names (no-id = no QR value was read), <set> the id of the shoe's pass
-(the first frame of it, with the QR value in front). Asked for by shoe (the QR values, optionally one day) or by frame
-ids. The zip is written to a temporary file (never held in memory) and removed when the answer is sent."""
+(the first frame of it, with the QR value in front). Asked for by shoe (the QR values, optionally one day), by some
+sets of one shoe (sets_<shoe>_<N>-sets_<time>.zip) or by frame ids. The zip is written to a temporary file (never held in memory) and removed when the answer is sent."""
 
 import json
+import re
 import shutil
 import tempfile
 import zipfile
@@ -22,6 +23,8 @@ from .store import store
 MAX_IDS = 600      # frames per download when asked for by frame ids (they travel in the address)
 MAX_FRAMES = 20000  # frames per download when asked for by shoe (the size limit below is the real one)
 MAX_SHOES = 500    # shoes per download (their QR values travel in the address)
+MAX_SETS = 500     # sets per download when asked for by set (their ids travel in the address)
+SET_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")   # a burst id (20261105_124441_836-t60) or a frame id
 MB = 1024 * 1024
 
 
@@ -65,8 +68,21 @@ def frame_ids(shoes, date=None):
     return ids
 
 
-def build(ids, limit=MAX_IDS):
-    """The zip of the frames `ids` as (open temporary file at the start, file name, size). The caller closes the file."""
+def set_frame_ids(shoe, sets, date=None):
+    """The frame ids of some sets of one shoe (QR value; None = no QR value was read). A set is named by its id as the
+    Gallery groups it: the burst id of its frames, or the frame's own id for a manual capture."""
+    keys = set(sets or [])
+    if not keys or len(keys) > MAX_SETS or not all(isinstance(k, str) and SET_KEY_RE.match(k) for k in keys):
+        raise DownloadError(f"sets: 1 to {MAX_SETS} set ids")
+    ids = [m["id"] for m in store.by_shoe(shoe, date) if ((m.get("burst") or {}).get("id") or m["id"]) in keys]
+    if not ids:
+        raise DownloadError("these sets do not exist (any more)", 404)
+    return ids
+
+
+def build(ids, limit=MAX_IDS, kind="shoes"):
+    """The zip of the frames `ids` as (open temporary file at the start, file name, size). The caller closes the file.
+    kind "sets": the name says how many sets it holds (sets_<shoe>_<N>-sets_<time>.zip)."""
     if not ids or len(ids) > limit or not all(isinstance(i, str) and ID_RE.match(i) for i in ids):
         raise DownloadError(f"ids: 1 to {limit} frame ids")
     found, missing = collect(ids)
@@ -75,7 +91,7 @@ def build(ids, limit=MAX_IDS):
     total = sum(size for _, _, _, files in found for _, _, size in files)
     if DOWNLOAD_MAX_MB and total > DOWNLOAD_MAX_MB * MB:
         raise DownloadError(f"{total / MB:.0f} MB is more than the limit of {DOWNLOAD_MAX_MB} MB per download: "
-                            "pick fewer shoes (ON_DOWNLOAD_MAX_MB changes the limit)", 413)
+                            f"pick fewer {'sets' if kind == 'sets' else 'shoes'} (ON_DOWNLOAD_MAX_MB changes the limit)", 413)
     free = shutil.disk_usage(tempfile.gettempdir()).free
     if free < total * 1.05 + 200 * MB:
         raise DownloadError(f"not enough free disk space for the zip ({total / MB:.0f} MB needed, {free / MB:.0f} MB free)", 507)
@@ -116,5 +132,8 @@ def build(ids, limit=MAX_IDS):
         tmp.close()
         raise
     label = next(iter(folders.values())) if len(folders) == 1 else f"{len(folders)}-shoes"
-    name = f"shoes_{label}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    if kind == "sets":
+        n_sets = sum(len(sets) for sets in tree.values())
+        label = f"{label}_{n_sets}-{'set' if n_sets == 1 else 'sets'}"
+    name = f"{kind}_{label}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
     return tmp, name, size

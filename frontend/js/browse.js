@@ -20,6 +20,9 @@ const hidden = new Set();  // cameras switched off in the filter
 let mode = 'sets';         // 'sets' | 'cams'
 let focusSample = null;    // ?sample=<id>: the set that contains it is highlighted
 const picked = new Map();  // the shoes ticked for the download: shoeParam(shoe_id) -> shoe_id (kept while the list changes)
+const pickedSets = new Set();   // the sets of the open shoe ticked for the set download (their keys); cleared on another shoe / day
+let lastPicked = -1;      // index of the set ticked last: shift+click ticks the sets between
+let pickedDay = '';       // the day the set ticks belong to
 let shown = [];            // the pictures on screen, in order: what the lightbox steps through
 let lbIndex = -1;
 
@@ -177,9 +180,13 @@ function setUrl() {
 }
 
 async function selectShoe(id, keepScroll) {
+  const day = dateFilter;
+  if (id !== current || day !== pickedDay) { pickedSets.clear(); lastPicked = -1; }
+  pickedDay = day;
   current = id;
   metas = await getJson('/api/samples?shoe=' + shoeParam(id) + (dateFilter ? `&date=${encodeURIComponent(dateFilter)}` : ''));
   sets = groupSets(metas);
+  for (const k of [...pickedSets]) if (!sets.some((s) => s.key === k)) pickedSets.delete(k);   // deleted meanwhile
   camOrder = mergeCams();
   renderShoes();
   renderDetail(keepScroll);
@@ -211,6 +218,7 @@ function renderDetail(keepScroll) {
     chips.appendChild(b);
   }
 
+  updateSetDownload();
   shown = [];
   const box = $('content');
   box.replaceChildren();
@@ -261,9 +269,17 @@ function cell(m, role, label) {
 function renderSets(box) {
   const roles = camOrder.filter((r) => !hidden.has(r));
   sets.forEach((s, i) => {
-    const card = el('div', 'setcard' + (focusSample && s.cuts.some((c) => c.id === focusSample) ? ' focus' : ''));
+    const card = el('div', 'setcard' + (focusSample && s.cuts.some((c) => c.id === focusSample) ? ' focus' : '')
+      + (pickedSets.has(s.key) ? ' picked' : ''));
     const head = el('div', 'sethead');
-    head.append(el('b', '', `Set ${sets.length - i}`), el('span', '', fmtTime(s.time)),
+    const pick = el('label', 'setpick');
+    pick.title = 'Tick to download this set (shift+click: also the sets between)';
+    const tick = document.createElement('input');
+    tick.type = 'checkbox';
+    tick.checked = pickedSets.has(s.key);
+    tick.onclick = (e) => pickSet(i, tick.checked, e.shiftKey);
+    pick.appendChild(tick);
+    head.append(pick, el('b', '', `Set ${sets.length - i}`), el('span', '', fmtTime(s.time)),
       el('span', '', s.source === 'auto' ? 'Auto' : 'Manual'), el('span', '', `${s.cuts.length} frames`));
     const lostCams = camOrder.filter((r) => s.cuts.some((m) => m.views && m.views[r] && m.views[r].settings_lost));
     if (lostCams.length) {
@@ -340,6 +356,52 @@ $('dlBtn').onclick = () => {
   }
   const a = document.createElement('a');        // the browser downloads the zip itself (nothing is held in the page)
   a.href = '/api/samples/download?' + [...picked.keys()].map((k) => 'shoe=' + k).join('&') + (dateFilter ? `&date=${encodeURIComponent(dateFilter)}` : '');
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+};
+
+// ---- download some sets of the open shoe (e.g. a few of the many "No ID" sets) as one zip ------------------
+
+const MAX_DOWNLOAD_SETS = 500;   // the server's limit (the set ids travel in the address)
+
+function pickSet(index, on, range) {
+  const from = range && lastPicked >= 0 ? Math.min(lastPicked, index) : index;
+  const to = range && lastPicked >= 0 ? Math.max(lastPicked, index) : index;
+  for (let i = from; i <= to; i++) on ? pickedSets.add(sets[i].key) : pickedSets.delete(sets[i].key);
+  lastPicked = index;
+  if (from !== to) renderDetail(true);   // the boxes between change too
+  else {
+    const card = $('content').children[index];
+    if (card && mode === 'sets') card.classList.toggle('picked', on);
+    updateSetDownload();
+  }
+}
+
+function updateSetDownload() {
+  const chosen = sets.filter((s) => pickedSets.has(s.key));
+  const images = chosen.reduce((n, s) => n + s.cuts.reduce((k, m) => k + Object.keys(m.views || { x: 1 }).length, 0), 0);
+  $('setDlBtn').textContent = `Download (${chosen.length} ${chosen.length === 1 ? 'set' : 'sets'})`;
+  $('setDlBtn').title = chosen.length ? `${chosen.length} sets · ${images} images, as one .zip file` : 'Tick sets (By set view) to download them';
+  $('setDlBtn').disabled = chosen.length === 0;
+  $('setAll').disabled = !sets.length || chosen.length === sets.length;
+  $('setNone').disabled = chosen.length === 0;
+  $('setDl').classList.toggle('dim', mode !== 'sets');
+}
+
+$('setAll').onclick = () => { sets.forEach((s) => pickedSets.add(s.key)); renderDetail(true); };
+$('setNone').onclick = () => { pickedSets.clear(); lastPicked = -1; renderDetail(true); };
+$('setDlBtn').onclick = () => {
+  const keys = sets.filter((s) => pickedSets.has(s.key)).map((s) => s.key);
+  if (!keys.length || current === undefined) return;
+  if (keys.length > MAX_DOWNLOAD_SETS) {
+    alert(`Too many sets (${keys.length}). Download at most ${MAX_DOWNLOAD_SETS} sets at a time: untick some.`);
+    return;
+  }
+  const a = document.createElement('a');        // the browser downloads the zip itself (nothing is held in the page)
+  a.href = `/api/samples/download?shoe=${shoeParam(current)}&sets=${keys.map(encodeURIComponent).join(',')}`
+    + (dateFilter ? `&date=${encodeURIComponent(dateFilter)}` : '');
   a.download = '';
   document.body.appendChild(a);
   a.click();

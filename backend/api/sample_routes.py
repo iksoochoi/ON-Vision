@@ -39,10 +39,17 @@ class SampleRoutes:
 
     def _download_sets(self, query):
         """?shoe=<QR value>&shoe=...[&date=<day>]: all the sets of those shoes (an empty value = no QR value was read);
+        ?shoe=<QR value>&sets=<set id>,<set id>,...[&date=<day>]: some sets of one shoe;
         or ?ids=<id>,<id>,...: single frames. One zip, see storage/set_download.py."""
         args = self._query_with_blanks()
         try:
-            if "shoe" in args:
+            if "sets" in args:
+                if len(args.get("shoe", [])) != 1:
+                    raise set_download.DownloadError("sets: give exactly one shoe (shoe=<QR value>, empty = no QR value)")
+                keys = [k for k in args["sets"][0].split(",") if k]
+                ids = set_download.set_frame_ids(args["shoe"][0] or None, keys, args.get("date", [""])[0] or None)
+                tmp, name, size = set_download.build(ids, limit=set_download.MAX_FRAMES, kind="sets")
+            elif "shoe" in args:
                 ids = set_download.frame_ids([s or None for s in args["shoe"]], args.get("date", [""])[0] or None)
                 tmp, name, size = set_download.build(ids, limit=set_download.MAX_FRAMES)
             else:
