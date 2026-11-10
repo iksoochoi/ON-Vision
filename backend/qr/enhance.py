@@ -8,7 +8,10 @@ Three steps, each only tried when the one before found nothing, all within a tim
      few blur lengths), contrast stretched, binarised, brighter / darker (glare).
   2. every version is read by zxing-cpp as well as by OpenCV (ON_QR_ZXING, needs the zxing-cpp package; it copes
      with blur and tilt better than OpenCV).
-  3. saved pictures only (deep=True): when nothing could even be located, zxing-cpp searches the picture itself.
+  3. saved pictures only (deep=True): when nothing could even be located, zxing-cpp searches the picture itself, as
+     it is and binarised (adaptive threshold: reads a label folded over an edge, 2026-11-10). A code zxing finds but
+     cannot decode (damaged, cut) is then read again at its place like step 1 (straightened, enlarged, versions);
+     last, the picture deblurred along the belt.
 
 Every code carries "method": which step read it (for example "crop+zxing:wiener6"), so a log or the QR page can
 tell what the extra work pays."""
@@ -69,6 +72,32 @@ def _zx_read(gray):
         if out:
             return out
     return out
+
+
+def _zx_symbols(gray):
+    """Corner points (4x2) of the QR codes zxing-cpp FINDS in a picture but cannot decode (too damaged, cut, blurred):
+    their place, for the straightened / enlarged versions. [] without zxing-cpp or when its version cannot say."""
+    quads = []
+    try:
+        results = zxingcpp.read_barcodes(gray, formats=_ZX_FORMAT, return_errors=True)
+    except Exception:   # an older zxing-cpp without return_errors
+        return quads
+    for r in results:
+        if getattr(r, "valid", True) and r.text:
+            continue
+        pos = getattr(r, "position", None)
+        try:
+            quad = np.array([[p.x, p.y] for p in (pos.top_left, pos.top_right, pos.bottom_right, pos.bottom_left)],
+                            dtype=np.float32)
+        except Exception:
+            continue
+        if _size(quad) >= 20:
+            quads.append(quad)
+    return quads
+
+
+def _adaptive(gray):
+    return cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 5)
 
 
 def _cv_read(gray):
@@ -179,11 +208,18 @@ def read_located(gray, quads, origin, full_wh, deadline):
 
 def read_blind(gray, origin, full_wh, deadline):
     """Nothing could be located (a code blurred along the belt is not even found by the detector): zxing-cpp looks
-    for a code in the picture itself, then in the picture deblurred at a few blur lengths. Needs zxing-cpp (the
-    OpenCV reader is too slow on a whole search area)."""
+    for a code in the picture itself and binarised; a code it finds but cannot decode is read again at its place
+    (straightened, enlarged, the versions above); then the picture deblurred at a few blur lengths. Needs zxing-cpp
+    (the OpenCV reader is too slow on a whole search area)."""
     if not zxing_ready():
         return []
     found = _blind_zxing(gray, origin, full_wh, deadline)
+    if not found and time.monotonic() <= deadline:
+        found = _blind_zxing(_adaptive(gray), origin, full_wh, deadline, "adaptive+zxing", scales=(1.0,))
+    if not found and time.monotonic() <= deadline:
+        quads = _zx_symbols(gray)
+        if quads:
+            found = [dict(c, method="zxfound:" + c["method"]) for c in read_located(gray, quads, origin, full_wh, deadline)]
     for blur in BLIND_BLUR_PX:
         if found or time.monotonic() > deadline:
             break
