@@ -15,6 +15,9 @@ const CAM_LABELS = {
   hw_saturation: 'HW saturation', antibanding: 'Flicker',
 };
 const CAM_STEP = { iso: 100, wb: 100 };
+// typed values: the slider moves in steps of 100, the box takes any value (empty = Auto). The lowest manual value
+// (the sensor cannot go below it): a smaller one is raised to it.
+const CAM_TYPED = { iso: { low: 100 }, wb: { low: 1000 } };
 const ANTIBANDING_LABELS = { AUTO: 'Auto', MAINS_50_HZ: '50Hz', MAINS_60_HZ: '60Hz', OFF: 'Off' };
 const SIZE_LABEL = (v) => (v === 'full' ? 'Full (sensor)' : v.replace('x', '×'));
 
@@ -131,14 +134,34 @@ function buildCamControls() {
       const inp = document.createElement('input');
       inp.type = 'range'; inp.id = 'cam_' + name;
       inp.min = s.min; inp.max = s.max; inp.step = CAM_STEP[name] || 1; inp.value = values[name];
-      const val = document.createElement('span');
-      val.className = 'val'; val.id = 'camval_' + name; val.textContent = fmtCam(name, values[name]);
-      inp.oninput = () => {
-        val.textContent = fmtCam(name, inp.value);
-        postCam(name, inp.value);
-      };
-      row.appendChild(inp);
-      row.appendChild(val);
+      if (CAM_TYPED[name]) {
+        const box2 = document.createElement('input');
+        box2.type = 'number'; box2.className = 'val typed'; box2.id = 'camval_' + name;
+        box2.min = 0; box2.max = s.max; box2.step = 1; box2.placeholder = 'Auto';
+        box2.title = `Type a value (${CAM_TYPED[name].low}-${s.max}), Enter to apply. Empty or 0 = Auto`;
+        box2.value = Number(values[name]) ? values[name] : '';
+        inp.oninput = () => { box2.value = Number(inp.value) ? inp.value : ''; postCam(name, inp.value); };
+        box2.onchange = () => {
+          let v = box2.value.trim() === '' ? 0 : Math.round(Number(box2.value));
+          if (!Number.isFinite(v) || v < 0) v = 0;
+          if (v > 0) v = Math.max(CAM_TYPED[name].low, Math.min(s.max, v));
+          box2.value = v ? v : '';
+          inp.value = v;
+          postCam(name, v);
+        };
+        box2.onkeydown = (e) => { if (e.key === 'Enter') box2.blur(); };
+        row.appendChild(inp);
+        row.appendChild(box2);
+      } else {
+        const val = document.createElement('span');
+        val.className = 'val'; val.id = 'camval_' + name; val.textContent = fmtCam(name, values[name]);
+        inp.oninput = () => {
+          val.textContent = fmtCam(name, inp.value);
+          postCam(name, inp.value);
+        };
+        row.appendChild(inp);
+        row.appendChild(val);
+      }
     }
     box.appendChild(row);
   }
@@ -184,7 +207,9 @@ function refreshCamValues() {
     const el = document.getElementById('cam_' + name);
     if (el && el !== document.activeElement) el.value = values[name];
     const val = document.getElementById('camval_' + name);
-    if (val) val.textContent = fmtCam(name, values[name]);
+    if (val && CAM_TYPED[name]) {
+      if (val !== document.activeElement) val.value = Number(values[name]) ? values[name] : '';
+    } else if (val) val.textContent = fmtCam(name, values[name]);
   }
 }
 

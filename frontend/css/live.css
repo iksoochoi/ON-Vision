@@ -245,6 +245,7 @@ body.panel-open #panelToggle .pane { opacity: 1; }
   align-items: center;
   margin-bottom: 6px;
 }
+.slider-row input.val.typed { width: 100%; padding: 2px 4px; }
 .slider-row .val { text-align: right; color: var(--text); font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
 input[type="range"] { accent-color: var(--accent); }
 .recent { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
