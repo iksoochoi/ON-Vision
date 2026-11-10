@@ -17,6 +17,7 @@ STATIC_FILES = {
     "/browse":           ("page/browse.html",  "text/html; charset=utf-8"),
     "/predict":          ("page/predict.html", "text/html; charset=utf-8"),
     "/imagelab":         ("page/imagelab.html", "text/html; charset=utf-8"),
+    "/light":            ("page/light.html",   "text/html; charset=utf-8"),
     "/css/common.css":   ("css/common.css",    "text/css; charset=utf-8"),
     "/css/live.css":     ("css/live.css",      "text/css; charset=utf-8"),
     "/css/browse.css":   ("css/browse.css",    "text/css; charset=utf-8"),
@@ -24,12 +25,14 @@ STATIC_FILES = {
     "/css/qr.css":       ("css/qr.css",        "text/css; charset=utf-8"),
     "/css/predict.css":  ("css/predict.css",   "text/css; charset=utf-8"),
     "/css/imagelab.css": ("css/imagelab.css",  "text/css; charset=utf-8"),
+    "/css/light.css":    ("css/light.css",     "text/css; charset=utf-8"),
     "/js/live.js":       ("js/live.js",        "application/javascript; charset=utf-8"),
     "/js/label.js":      ("js/label.js",       "application/javascript; charset=utf-8"),
     "/js/qr.js":         ("js/qr.js",          "application/javascript; charset=utf-8"),
     "/js/browse.js":     ("js/browse.js",      "application/javascript; charset=utf-8"),
     "/js/predict.js":    ("js/predict.js",     "application/javascript; charset=utf-8"),
     "/js/imagelab.js":   ("js/imagelab.js",    "application/javascript; charset=utf-8"),
+    "/js/light.js":      ("js/light.js",       "application/javascript; charset=utf-8"),
     "/js/welcome.js":    ("js/welcome.js",     "application/javascript; charset=utf-8"),
 }
 

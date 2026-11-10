@@ -1,0 +1,23 @@
+.light-page { margin-left: var(--side-w); padding: 16px; max-width: 1500px; display: grid; gap: 16px; }
+.light-bar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 900px) { .light-bar { grid-template-columns: minmax(0, 1fr); } }
+.light-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.light-grid .empty { color: var(--dim); padding: 24px; }
+
+.light-card h3 { display: flex; align-items: baseline; gap: 8px; }
+.light-card h3 .ch { color: var(--dim); font-weight: 560; font-family: var(--mono); font-size: 12px; }
+.light-card h3 .val { margin-left: auto; font: 680 22px/1 var(--mono); color: var(--accent); }
+.light-card.busy h3 .val { color: var(--dim); }
+.light-card.off h3 .val { color: var(--dim); }
+
+.light-view { position: relative; aspect-ratio: 4 / 3; margin-bottom: 12px; border-radius: 8px; overflow: hidden;
+              background: #0c110d; border: 1px solid var(--line); }
+.light-view img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.light-view .none { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font-size: 13px; }
+
+.light-ctl { display: flex; gap: 10px; align-items: center; }
+.light-ctl input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); height: 28px; }
+.light-ctl input[type=number] { width: 76px; text-align: right; font-family: var(--mono); }
+.light-steps { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.light-steps button { padding: 4px 10px; font-size: 12px; }
+.hint.err { color: var(--warn); }

@@ -274,6 +274,27 @@ def _parse_roi(text):
 # then as a whole. Empty = the whole picture.
 QR_ROI = _env("ON_QR_ROI", None, _parse_roi)
 
+# ---- lighting controller (L-light LPW, Light page) -------------------------
+# The unit's address on the Ethernet (TCP). Empty = no controller: the Light page says so.
+LIGHT_HOST = _env("ON_LIGHT_HOST", "192.168.0.45").strip()
+LIGHT_PORT = _env("ON_LIGHT_PORT", 50000, int)
+
+
+def _parse_light_channels(text):
+    """'left:1,front:2' -> [("left", 1), ("front", 2)] (channel 1..16); ValueError if not valid."""
+    out = []
+    for part in text.split(","):
+        name, _, ch = part.strip().partition(":")
+        ch = int(ch)
+        if not name.strip() or not 1 <= ch <= 16 or ch in (c for _, c in out):
+            raise ValueError(text)
+        out.append((name.strip().lower(), ch))
+    return out
+
+
+# Which light each channel is (shown on the Light page; only these channels can be set there)
+LIGHT_CHANNELS = _env("ON_LIGHT_CHANNELS", _parse_light_channels("left:1,front:2,right:3,back:4"), _parse_light_channels)
+
 # ---- capture log -----------------------------------------------------------
 # One line per capture (automatic or manual) in <ON_LOG_DIR>/capture.log: see backend/storage/capture_log.py.
 LOG_DIR = _path("ON_LOG_DIR", "logs")

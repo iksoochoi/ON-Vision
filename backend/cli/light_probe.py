@@ -21,32 +21,12 @@ import socket
 import sys
 import time
 
+from ..light.lpw import ACK, NAK, hexs, parse, receive
+
 READS = {
     "values": bytes([0x01, 0x01, 0x00, 0x21, 0x04]),   # CSVR
     "mode": bytes([0x01, 0x01, 0x00, 0x32, 0x04]),     # CSMR
 }
-ACK, NAK = 0x06, 0x15
-
-
-def hexs(data):
-    return " ".join(f"{b:02X}" for b in data) or "(nothing)"
-
-
-def parse(data):
-    """Packets 01 OP LEN ADDR data.. 04 in the bytes received: [(address, data bytes)]. Other bytes are skipped."""
-    out, i = [], 0
-    while i + 4 < len(data):
-        if data[i] != 0x01:
-            i += 1
-            continue
-        length, addr = data[i + 2], data[i + 3]
-        end = i + 4 + length
-        if end < len(data) and data[end] == 0x04:
-            out.append((addr, bytes(data[i + 4:end])))
-            i = end + 1
-        else:
-            i += 1
-    return out
 
 
 def describe(name, data):
@@ -99,25 +79,6 @@ def ask_udp(host, port, request, timeout, listen_port=None):
     finally:
         for x in socks:
             x.close()
-
-
-def receive(s, timeout):
-    """Bytes until a packet end (04), a lone ACK/NAK, or the timeout."""
-    data, until = b"", time.monotonic() + timeout
-    s.settimeout(0.2)
-    while time.monotonic() < until:
-        try:
-            part = s.recv(4096)
-        except socket.timeout:
-            if data:
-                break
-            continue
-        if not part:
-            break
-        data += part
-        if data.endswith(b"\x04") or data in (bytes([ACK]), bytes([NAK])):
-            break
-    return data
 
 
 def ask_serial(device, request, timeout):
