@@ -5,7 +5,7 @@ from ..light import lpw
 
 
 def _payload(values):
-    return {"enabled": True, "host": C.LIGHT_HOST, "port": C.LIGHT_PORT,
+    return {"enabled": True, "host": C.LIGHT_HOST, "port": C.LIGHT_PORT, "relay": C.LIGHT_RELAY_PORT or None,
             "channels": [{"ch": ch, "name": name, "value": values[ch - 1]} for name, ch in C.LIGHT_CHANNELS]}
 
 

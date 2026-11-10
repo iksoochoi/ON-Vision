@@ -6,7 +6,9 @@ Manual "LPW-Specification & Protocol" v1.7, packet: 01 | OP (00 write, 01 read) 
 The unit keeps a written value after a power off while its auto-save is on (factory default).
 One request at a time (a lock): the unit is small, and the page and backend.cli.light_probe may ask together."""
 
+import errno
 import socket
+import sys
 import threading
 import time
 
@@ -77,19 +79,33 @@ def write_packet(channels, value):
     return bytes([0x01, 0x00, 0x03, CSVR, (mask >> 8) & 0xFF, mask & 0xFF, value, 0x04])
 
 
+def _address():
+    """Where to connect: the relay on this Mac (ON_LIGHT_RELAY_PORT) or the controller itself."""
+    return ("127.0.0.1", C.LIGHT_RELAY_PORT) if C.LIGHT_RELAY_PORT else (C.LIGHT_HOST, C.LIGHT_PORT)
+
+
 def _ask(request, timeout=TIMEOUT):
     if not C.LIGHT_HOST:
         raise LightError("no lighting controller (ON_LIGHT_HOST is empty)")
+    address = _address()
     with _lock:
         try:
-            with socket.create_connection((C.LIGHT_HOST, C.LIGHT_PORT), timeout=timeout) as s:
+            with socket.create_connection(address, timeout=timeout) as s:
                 s.sendall(request)
                 data = receive(s, timeout)
         except OSError as e:
+            if C.LIGHT_RELAY_PORT:
+                raise LightError(f"the light relay on 127.0.0.1:{C.LIGHT_RELAY_PORT} does not answer ({type(e).__name__}: {e}). "
+                                 "Install / check it: ./bin/install_launchd.sh light-relay-install, light-relay-status") from e
+            if sys.platform == "darwin" and e.errno == errno.EHOSTUNREACH:
+                raise LightError(f"no route to {C.LIGHT_HOST} (Errno 65). If backend.cli.light_probe reaches it from the Terminal, "
+                                 "macOS refuses this app the local network: ./bin/install_launchd.sh light-relay-install") from e
             raise LightError(f"no connection to {C.LIGHT_HOST}:{C.LIGHT_PORT} ({type(e).__name__}: {e}). "
-                             "Check the cable and that the Mac has an address in the unit's network (e.g. 192.168.0.225)")
+                             "Check the cable and that the Mac has an address in the unit's network (e.g. 192.168.0.225)") from e
     if not data:
-        raise LightError(f"{C.LIGHT_HOST}:{C.LIGHT_PORT} did not answer")
+        where = f"the controller (through the relay on 127.0.0.1:{C.LIGHT_RELAY_PORT})" if C.LIGHT_RELAY_PORT else f"{C.LIGHT_HOST}:{C.LIGHT_PORT}"
+        raise LightError(f"{where} did not answer"
+                         + (": see the relay log /Library/Logs/on_light_relay.log" if C.LIGHT_RELAY_PORT else ""))
     if data == bytes([NAK]):
         raise LightError("the controller refused the request (NAK)")
     return data

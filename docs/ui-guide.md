@@ -60,4 +60,8 @@
 - 컨트롤러는 바꾼 값을 저장해 두어 전원을 껐다 켜도 유지합니다(장비 기본 설정 Auto-Save). 앞면 다이얼로 바꾼 값도 이 화면의 `Read again`으로 읽힙니다.
 - 바꾼 기록은 `logs/app.log`의 `[light] front (CH2) -> 120 (from <접속 주소>)` 줄로 남습니다.
 - 설정(`.env`): `ON_LIGHT_HOST`(기본 `192.168.0.45`, 비우면 이 화면 꺼짐), `ON_LIGHT_PORT`(기본 `50000`), `ON_LIGHT_CHANNELS`(기본 `left:1,front:2,right:3,back:4`, 이 화면에서는 적힌 채널만 바꿀 수 있음).
+- **macOS에서 자동 실행된 앱은 연결이 막힙니다**(`[Errno 65] No route to host`): macOS 15부터 같은 네트워크의 장비에 접속하려면 앱마다 '로컬 네트워크' 권한이 필요한데, launchd로 뜬 앱은 시스템 설정에서 Python을 켜도 거부됩니다(터미널에서 `run.sh`나 `light_probe`로 실행하면 됨). 그래서 조명 연결만 **별도 시스템 서비스(중계, LaunchDaemon)** 가 맡습니다. 시스템 서비스는 이 권한 검사를 받지 않습니다.
+  - 설치(한 번, 관리자 비밀번호 필요): `./bin/install_launchd.sh light-relay-install`. `bin/light_relay.py`를 `/Library/Application Support/ON-Vision/`에 복사해 `127.0.0.1:50001` → `ON_LIGHT_HOST:ON_LIGHT_PORT`로 중계하고, `.env`에 `ON_LIGHT_RELAY_PORT=50001`을 넣고, 중계를 거쳐 밝기를 한 번 읽은 뒤 앱을 재시작합니다. 화면 오른쪽 위에 `connected (relay)`로 나옵니다.
+  - 확인: `./bin/install_launchd.sh light-relay-status`(상태와 로그 `/Library/Logs/on_light_relay.log`). 제거: `light-relay-uninstall`(직접 연결로 돌아감).
+  - 장비 주소(`ON_LIGHT_HOST`, `ON_LIGHT_PORT`)를 바꾸면 `light-relay-install`을 다시 실행하세요. 중계는 127.0.0.1에서만 받고, 받은 바이트를 그대로 넘깁니다.
 - 연결 안 됨: Mac에 장비 대역 주소(예 `192.168.0.225`, 서브넷 255.255.255.0)가 있는지, 랜선과 장비 LINK 램프를 확인하세요. 읽기만 하는 점검 도구: `.venv/bin/python -m backend.cli.light_probe`.

@@ -12,6 +12,12 @@
 #   ./bin/install_launchd.sh predict-uninstall    remove the worker (restart: predict-restart)
 #   ./bin/install_launchd.sh quiet-install        stop the app every night and start it again in the morning
 #   ./bin/install_launchd.sh quiet-uninstall      back to running all day
+#   ./bin/install_launchd.sh light-relay-install  the lighting controller relay (a LaunchDaemon, asks the admin password)
+#   ./bin/install_launchd.sh light-relay-uninstall | light-relay-status
+# The relay: macOS refuses a LaunchAgent app the local network (Errno 65 on the Light page) even with Python
+# allowed. LaunchDaemons are not checked, so bin/light_relay.py runs as one and passes 127.0.0.1:ON_LIGHT_RELAY_PORT
+# (default 50001) on to ON_LIGHT_HOST:ON_LIGHT_PORT; install sets ON_LIGHT_RELAY_PORT in .env. After changing the
+# controller's address in .env run light-relay-install again.
 # The quiet hours (nothing is shot at night, so the load is saved) are ON_QUIET_START .. ON_QUIET_END in .env,
 # default 23:00 .. 06:00. The app is stopped cleanly (it is not a crash) and started again at the end; after
 # changing the times run quiet-install again. Details: docs/operations.md.
@@ -35,6 +41,10 @@ PREDICT_LABEL="$LABEL.predict"
 PREDICT_PLIST="$HOME/Library/LaunchAgents/$PREDICT_LABEL.plist"
 PREDICT_LOG_FILE="$LOG_DIR/predict.log"
 LAUNCHCTL="${LAUNCHCTL_BIN:-launchctl}"   # replaced in tests
+RELAY_LABEL="$LABEL.lightrelay"
+RELAY_PLIST="/Library/LaunchDaemons/$RELAY_LABEL.plist"
+RELAY_DIR="/Library/Application Support/ON-Vision"   # root only: root runs nothing a user can change
+RELAY_LOG="/Library/Logs/on_light_relay.log"
 
 # write_plist KIND LABEL PLIST LOG_FILE: KIND "app" = bin/run.sh, kept alive; "ui" = `_open_ui`, once per login;
 # "quiet" = `_quiet` at the two times of QUIET_TIMES ("23:00,06:00"); "predict" = the defect detection worker
@@ -330,6 +340,86 @@ case "${1:-}" in
             "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" && echo "Started the app again: $LABEL"
         fi
         ;;
+    light-relay-install)
+        [ -x .venv/bin/python ] || { echo "Run ./bin/setup_mac.sh first" >&2; exit 1; }
+        host=$(env_value ON_LIGHT_HOST 192.168.0.45)
+        lport=$(env_value ON_LIGHT_PORT 50000)
+        rport=$(env_value ON_LIGHT_RELAY_PORT 0)
+        [ -n "$host" ] || { echo "ON_LIGHT_HOST is empty in .env: no controller to relay to" >&2; exit 1; }
+        case "$lport" in ''|*[!0-9]*) echo "ON_LIGHT_PORT is not a number: $lport" >&2; exit 1 ;; esac
+        case "$rport" in ''|*[!0-9]*|0) rport=50001 ;; esac
+        # the system's python3 (root owned) when the command line tools are there, else the interpreter of the venv
+        if xcode-select -p >/dev/null 2>&1 && [ -x /usr/bin/python3 ]; then py=/usr/bin/python3
+        else py=$(.venv/bin/python -c 'import os, sys; print(os.path.realpath(sys.executable))'); fi
+        tmp_plist=$(mktemp)
+        RELAY_LABEL="$RELAY_LABEL" PY="$py" SCRIPT="$RELAY_DIR/light_relay.py" RPORT="$rport" TARGET="$host:$lport" \
+            RELAY_LOG="$RELAY_LOG" OUT="$tmp_plist" .venv/bin/python - <<'EOF'
+import os
+import plistlib
+e = os.environ
+with open(e["OUT"], "wb") as f:
+    plistlib.dump({"Label": e["RELAY_LABEL"], "RunAtLoad": True, "KeepAlive": True, "ThrottleInterval": 10,
+                   "ProgramArguments": [e["PY"], "-I", "-u", e["SCRIPT"], "--listen-port", e["RPORT"], "--target", e["TARGET"]],
+                   "StandardOutPath": e["RELAY_LOG"], "StandardErrorPath": e["RELAY_LOG"]}, f)
+EOF
+        echo "Installing the light relay as a LaunchDaemon: 127.0.0.1:$rport -> $host:$lport (python: $py)"
+        echo "macOS asks for the administrator password (sudo)."
+        sudo mkdir -p "$RELAY_DIR"
+        sudo install -m 644 -o root -g wheel bin/light_relay.py "$RELAY_DIR/light_relay.py"
+        sudo install -m 644 -o root -g wheel "$tmp_plist" "$RELAY_PLIST"
+        rm -f "$tmp_plist"
+        sudo "$LAUNCHCTL" bootout "system/$RELAY_LABEL" 2>/dev/null || true
+        sudo "$LAUNCHCTL" bootstrap system "$RELAY_PLIST"
+        # the app connects through it: ON_LIGHT_RELAY_PORT in .env (the line is replaced, or added)
+        RPORT="$rport" .venv/bin/python - <<'EOF'
+import os
+import re
+from pathlib import Path
+p = Path(".env")
+text = p.read_text(encoding="utf-8") if p.exists() else ""
+line = f"ON_LIGHT_RELAY_PORT={os.environ['RPORT']} # 0 = direct; the relay: ./bin/install_launchd.sh light-relay-install"
+if re.search(r"(?m)^[ \t]*ON_LIGHT_RELAY_PORT[ \t]*=", text):
+    text = re.sub(r"(?m)^[ \t]*ON_LIGHT_RELAY_PORT[ \t]*=.*$", line, text)
+else:
+    text = text.rstrip("\n") + "\n" + line + "\n"
+p.write_text(text, encoding="utf-8")
+EOF
+        echo ".env: ON_LIGHT_RELAY_PORT=$rport"
+        sleep 1
+        if ON_LIGHT_RELAY_PORT="$rport" .venv/bin/python -c "from backend.light import lpw; print('Read through the relay:', lpw.read_values()[:4])"; then
+            if app_loaded; then "$LAUNCHCTL" kickstart -k "$DOMAIN/$LABEL" && echo "Restarted the app: the Light page uses the relay"; fi
+        else
+            echo "The relay does not answer yet: ./bin/install_launchd.sh light-relay-status (log $RELAY_LOG)" >&2
+            exit 1
+        fi
+        ;;
+    light-relay-uninstall)
+        sudo "$LAUNCHCTL" bootout "system/$RELAY_LABEL" 2>/dev/null || true
+        sudo rm -f "$RELAY_PLIST" "$RELAY_DIR/light_relay.py"
+        sudo rmdir "$RELAY_DIR" 2>/dev/null || true
+        if grep -qE '^[[:space:]]*ON_LIGHT_RELAY_PORT[[:space:]]*=' .env 2>/dev/null; then
+            .venv/bin/python - <<'EOF'
+import re
+from pathlib import Path
+p = Path(".env")
+p.write_text(re.sub(r"(?m)^[ \t]*ON_LIGHT_RELAY_PORT[ \t]*=.*$", "ON_LIGHT_RELAY_PORT=0 # 0 = direct", p.read_text(encoding="utf-8")), encoding="utf-8")
+EOF
+        fi
+        echo "Removed: $RELAY_LABEL (.env ON_LIGHT_RELAY_PORT=0: the app connects directly)"
+        if app_loaded; then "$LAUNCHCTL" kickstart -k "$DOMAIN/$LABEL" && echo "Restarted the app"; fi
+        ;;
+    light-relay-status)
+        echo "$RELAY_LABEL (light relay, LaunchDaemon):"
+        if [ -f "$RELAY_PLIST" ]; then
+            "$LAUNCHCTL" print "system/$RELAY_LABEL" 2>/dev/null | grep -E '^\s*(state|pid|runs|last exit code) =' | head -4 \
+                || echo "  installed but not loaded"
+            echo "  .env ON_LIGHT_RELAY_PORT=$(env_value ON_LIGHT_RELAY_PORT 0)"
+            echo "  last lines of $RELAY_LOG:"
+            tail -n 5 "$RELAY_LOG" 2>/dev/null | sed 's/^/    /' || true
+        else
+            echo "  Not installed (./bin/install_launchd.sh light-relay-install)"
+        fi
+        ;;
     _quiet)   # internal: what the quiet agent runs
         quiet_apply
         ;;
@@ -381,7 +471,7 @@ case "${1:-}" in
         open_ui "${2:-}"
         ;;
     *)
-        echo "usage: $0 install | uninstall | restart | stop | start | status | logs [app|collect|capture|run|service|quiet|predict] | ui | predict-install | predict-uninstall | predict-restart | quiet-install | quiet-uninstall" >&2
+        echo "usage: $0 install | uninstall | restart | stop | start | status | logs [app|collect|capture|run|service|quiet|predict] | ui | predict-install | predict-uninstall | predict-restart | quiet-install | quiet-uninstall | light-relay-install | light-relay-uninstall | light-relay-status" >&2
         exit 2
         ;;
 esac

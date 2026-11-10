@@ -278,6 +278,9 @@ QR_ROI = _env("ON_QR_ROI", None, _parse_roi)
 # The unit's address on the Ethernet (TCP). Empty = no controller: the Light page says so.
 LIGHT_HOST = _env("ON_LIGHT_HOST", "192.168.0.45").strip()
 LIGHT_PORT = _env("ON_LIGHT_PORT", 50000, int)
+# macOS: connect through the relay (bin/light_relay.py, a LaunchDaemon) on 127.0.0.1:<port> instead of directly.
+# A LaunchAgent app is refused the local network (Errno 65); ./bin/install_launchd.sh light-relay-install sets it. 0 = direct.
+LIGHT_RELAY_PORT = _env("ON_LIGHT_RELAY_PORT", 0, int)
 
 
 def _parse_light_channels(text):

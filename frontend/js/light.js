@@ -45,7 +45,7 @@ function build() {
   grid.innerHTML = channels.map((c) => `
     <div class="card light-card" id="card${c.ch}">
       <h3>${esc(c.name.toUpperCase())} <span class="ch">CH${c.ch}</span><span class="val" id="val${c.ch}">-</span></h3>
-      <div class="light-view"><img id="snap${c.ch}" alt="${esc(c.name)} camera"><div class="none" id="none${c.ch}" hidden>No camera named ${esc(c.name)}</div></div>
+      <div class="light-view"><img id="snap${c.ch}" alt="${esc(c.name)} camera"><div class="none" id="none${c.ch}" hidden>No picture from the ${esc(c.name)} camera (not connected, or no camera of that name)</div></div>
       <div class="light-ctl">
         <input type="range" id="range${c.ch}" min="0" max="255" step="1" aria-label="Brightness of ${esc(c.name)}">
         <input type="number" id="num${c.ch}" min="0" max="255" step="1" aria-label="Brightness of ${esc(c.name)}">
@@ -105,7 +105,7 @@ function apply(data, rebuild) {
   channels = data.channels || [];
   if (rebuild || names !== channels.map((c) => c.ch).join()) build();
   render();
-  setStatus(true, `${data.host}:${data.port} connected`);
+  setStatus(true, `${data.host}:${data.port} connected${data.relay ? ' (relay)' : ''}`);
   $('enabledChip').textContent = `${channels.length} lights`;
 }
 
@@ -124,6 +124,7 @@ async function load() {
   } catch (e) {
     setStatus(false, 'not connected');
     showError(String(e.message || e));
+    if (!channels.length) $('grid').innerHTML = '<div class="empty">Not connected: see the message above, then Read again.</div>';
     render();   // back to the last values read
   } finally {
     setBusy(false);
