@@ -227,6 +227,17 @@ body.panel-open #panelToggle .pane { opacity: 1; }
 }
 .iconbtn svg { width: 16px; height: 16px; display: block; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+/* Camera / Light tabs of the Controls panel */
+.panel-tabs { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 12px; }
+.panel-tabs button { border-radius: 0; background: #243026; color: var(--text); padding: 7px 12px; font-weight: 560; }
+.panel-tabs button:first-child { border-radius: 10px 0 0 10px; }
+.panel-tabs button:last-child { border-radius: 0 10px 10px 0; }
+.panel-tabs button.active { background: var(--accent); color: var(--accent-ink); font-weight: 680; }
+.panel-tab[hidden] { display: none; }
+.light-row input[type="number"] { width: 100%; padding: 2px 4px; text-align: right; font-family: var(--mono); font-size: 12px; }
+.light-row label small { color: var(--dim); font-family: var(--mono); font-size: 11px; margin-left: 4px; }
+.light-row.all { padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+#lightStatus.err { color: var(--warn); }
 .slider-row {
   display: grid;
   grid-template-columns: 90px 1fr 56px;

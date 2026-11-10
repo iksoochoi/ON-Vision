@@ -33,6 +33,7 @@ STATIC_FILES = {
     "/js/predict.js":    ("js/predict.js",     "application/javascript; charset=utf-8"),
     "/js/imagelab.js":   ("js/imagelab.js",    "application/javascript; charset=utf-8"),
     "/js/light.js":      ("js/light.js",       "application/javascript; charset=utf-8"),
+    "/js/light_panel.js": ("js/light_panel.js", "application/javascript; charset=utf-8"),
     "/js/welcome.js":    ("js/welcome.js",     "application/javascript; charset=utf-8"),
 }
 
