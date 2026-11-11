@@ -3,7 +3,10 @@
 Manual "LPW-Specification & Protocol" v1.7, packet: 01 | OP (00 write, 01 read) | length | address | data | 04
     read  CSVR  01 01 00 21 04                      -> 01 01 10 21 v1 .. v16 04
     write CSVR  01 00 03 21 [CH16..9] [CH8..1] v 04 -> [CH16..9] [CH8..1] v 'O' 'K'   (bit = channel; NAK 15 = refused)
-The unit keeps a written value after a power off while its auto-save is on (factory default).
+    save        01 00 01 2C 10 04                   -> 06   (SCR 0x2C bit 4 SAVE_FLG: the current values to the memory)
+A value written over the network is NOT kept after a power off by itself (2026-11-11: the unit came back with the
+older values after the Mac and the controller were restarted, although its auto-save should be on): save() after a
+change. The memory takes a limited number of writes: save after a change, not in a loop.
 One request at a time (a lock): the unit is small, and the page and backend.cli.light_probe may ask together."""
 
 import errno
@@ -17,6 +20,8 @@ from ..core import config as C
 ACK, NAK = 0x06, 0x15
 CSVR = 0x21
 READ_VALUES = bytes([0x01, 0x01, 0x00, CSVR, 0x04])
+SCR, SAVE_FLG = 0x2C, 0x10
+SAVE = bytes([0x01, 0x00, 0x01, SCR, SAVE_FLG, 0x04])
 TIMEOUT = 2.0
 
 _lock = threading.Lock()
@@ -131,3 +136,11 @@ def set_value(channels, value):
     data = _ask(request)
     if not (data.endswith(b"OK") or data == bytes([ACK])):
         raise LightError(f"the controller did not confirm: sent {hexs(request)}, received {hexs(data)}")
+
+
+def save():
+    """Store the current values of all the channels in the unit's memory (kept after a power off). Raises LightError
+    when the unit does not confirm."""
+    data = _ask(SAVE)
+    if not (data == bytes([ACK]) or data.endswith(b"OK")):
+        raise LightError(f"the controller did not confirm the save: sent {hexs(SAVE)}, received {hexs(data)}")

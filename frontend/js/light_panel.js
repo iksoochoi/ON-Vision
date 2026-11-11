@@ -103,7 +103,10 @@
     if (busy) return;
     setBusy(true);
     try {
-      apply(await request('/api/light', { ch: chs, value }));
+      const data = await request('/api/light', { ch: chs, value });
+      apply(data);
+      if (data.saved === false) status('Set, but NOT saved in the controller (lost at a power off): ' + (data.save_error || ''), true);
+      else if (data.saved) status(`Set and saved in the controller, ${new Date().toLocaleTimeString()}`);
     } catch (e) {
       render();   // back to the values last read
       status('Not set: ' + String(e.message || e), true);

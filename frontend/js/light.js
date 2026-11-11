@@ -100,6 +100,14 @@ function setBusy(on) {
   channels.forEach((c) => { const card = $('card' + c.ch); if (card) card.classList.toggle('busy', on); });
 }
 
+function showSaved(data) {
+  if (data.saved === undefined) return;
+  const line = $('saveLine');
+  line.textContent = data.saved ? `Saved in the controller at ${new Date().toLocaleTimeString()} (kept after a power off)`
+    : 'Set, but NOT saved in the controller (lost at a power off): ' + (data.save_error || '') + '. Try Save in controller.';
+  line.classList.toggle('err', !data.saved);
+}
+
 function apply(data, rebuild) {
   const names = channels.map((c) => c.ch).join();
   channels = data.channels || [];
@@ -135,7 +143,9 @@ async function send(chs, value) {
   if (busy) return;
   setBusy(true);
   try {
-    apply(await post('/api/light', { ch: chs, value }));
+    const data = await post('/api/light', { ch: chs, value });
+    apply(data);
+    showSaved(data);
     showError('');
     setTimeout(() => refreshSnaps(chs), 600);   // the next preview frames show the new light
   } catch (e) {
@@ -159,6 +169,20 @@ $('allRange').oninput = () => { $('allNum').value = $('allRange').value; };
 $('allRange').onchange = () => send(channels.map((c) => c.ch), clamp($('allRange').value));
 $('allNum').onchange = () => send(channels.map((c) => c.ch), clamp($('allNum').value));
 $('refreshBtn').onclick = load;
+$('saveBtn').onclick = async () => {
+  if (busy) return;
+  setBusy(true);
+  try {
+    const data = await post('/api/light/save', {});
+    apply(data);
+    showSaved(data);
+    showError('');
+  } catch (e) {
+    showError('Not saved: ' + String(e.message || e));
+  } finally {
+    setBusy(false);
+  }
+};
 setInterval(() => refreshSnaps(), SNAP_MS);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 load();

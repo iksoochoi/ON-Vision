@@ -189,6 +189,8 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, Pr
             self._imagelab_upload(data)
         elif path == "/api/light":
             self._set_light(data)
+        elif path == "/api/light/save":
+            self._save_light()
         elif path == "/api/samples/delete":
             ids = data.get("ids")
             if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and ID_RE.match(i) for i in ids):

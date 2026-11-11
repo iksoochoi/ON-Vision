@@ -45,8 +45,9 @@
         <div class="hint">Sets every light below to the same brightness.</div>
       </div>
       <div class="card light-info">
-        <div class="row"><button type="button" id="refreshBtn" class="secondary">Read again</button><span class="hint" id="readAt"></span></div>
-        <div class="hint">Brightness 0 (off) to 255 (full). A value is sent when you let go of the slider, or press Enter in the box; the controller then reads it back. It keeps the value after a power off.</div>
+        <div class="row"><button type="button" id="refreshBtn" class="secondary">Read again</button><button type="button" id="saveBtn" class="secondary" title="Store the values the controller has now in its memory, so it keeps them after a power off. A change made here is stored by itself.">Save in controller</button><span class="hint" id="readAt"></span></div>
+        <div class="hint">Brightness 0 (off) to 255 (full). A value is sent when you let go of the slider, or press Enter in the box; the controller then reads it back and stores it in its memory, so it keeps the value after a power off. <b>Save in controller</b> stores the values it has now (e.g. set with its own dial).</div>
+        <div class="hint" id="saveLine"></div>
         <div class="hint err" id="errLine" hidden></div>
       </div>
     </div>

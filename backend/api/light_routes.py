@@ -4,9 +4,20 @@ from ..core import config as C
 from ..light import lpw
 
 
-def _payload(values):
+def _payload(values, **extra):
     return {"enabled": True, "host": C.LIGHT_HOST, "port": C.LIGHT_PORT, "relay": C.LIGHT_RELAY_PORT or None,
-            "channels": [{"ch": ch, "name": name, "value": values[ch - 1]} for name, ch in C.LIGHT_CHANNELS]}
+            "channels": [{"ch": ch, "name": name, "value": values[ch - 1]} for name, ch in C.LIGHT_CHANNELS], **extra}
+
+
+def _save():
+    """Save the values in the controller (lpw.save): None when saved, else the reason (the value is set all the same,
+    only not kept after a power off)."""
+    try:
+        lpw.save()
+        return None
+    except lpw.LightError as e:
+        print(f"[light] saving in the controller failed: {e}")
+        return str(e)
 
 
 class LightRoutes:
@@ -23,7 +34,8 @@ class LightRoutes:
         self._send_json(_payload(values))
 
     def _set_light(self, data):
-        """POST /api/light {"ch": [1, 2] or 1, "value": 0..255}: sets them, then answers what the unit reads back."""
+        """POST /api/light {"ch": [1, 2] or 1, "value": 0..255}: sets them, saves them in the controller (kept after a
+        power off), then answers what the unit reads back, with "saved": true / false and "save_error"."""
         chs = data.get("ch")
         chs = chs if isinstance(chs, list) else [chs]
         value = data.get("value")
@@ -36,10 +48,34 @@ class LightRoutes:
             return
         try:
             lpw.set_value(chs, value)
-            values = lpw.read_values()
         except lpw.LightError as e:
             print(f"[light] setting {', '.join(known[c] for c in chs)} to {value} failed: {e}")
             self.send_error(502, str(e))
             return
-        print(f"[light] {', '.join(f'{known[c]} (CH{c})' for c in chs)} -> {value}  (from {self.client_address[0]})")
-        self._send_json(_payload(values))
+        error = _save()
+        try:
+            values = lpw.read_values()
+        except lpw.LightError as e:
+            self.send_error(502, str(e))
+            return
+        print(f"[light] {', '.join(f'{known[c]} (CH{c})' for c in chs)} -> {value}"
+              f"{'' if error is None else ' (NOT saved)'}  (from {self.client_address[0]})")
+        self._send_json(_payload(values, saved=error is None, save_error=error))
+
+    def _save_light(self):
+        """POST /api/light/save: save the values the controller has now (e.g. set before the save existed)."""
+        if not C.LIGHT_HOST:
+            self.send_error(400, "no lighting controller (ON_LIGHT_HOST is empty)")
+            return
+        error = _save()
+        if error is not None:
+            self.send_error(502, error)
+            return
+        try:
+            values = lpw.read_values()
+        except lpw.LightError as e:
+            self.send_error(502, str(e))
+            return
+        print(f"[light] saved in the controller: {', '.join(f'{n} {values[c - 1]}' for n, c in C.LIGHT_CHANNELS)}"
+              f"  (from {self.client_address[0]})")
+        self._send_json(_payload(values, saved=True, save_error=None))
