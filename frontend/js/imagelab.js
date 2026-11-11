@@ -12,6 +12,7 @@ let qrRoi = null;
 let sets = [];            // the sets listed on the left (newest first)
 let setsAll = false;      // everything was loaded
 let loadingSets = false;
+let setsQuery = '';      // the search the list is for (the server searches all the sets)
 let source = null;        // {id, view} of a saved picture, or {token, camera} of an uploaded one
 let method = 'original';
 let seq = { orig: 0, res: 0 };
@@ -38,8 +39,7 @@ function setChip() {
 }
 
 function renderSets() {
-  const q = $('setQ').value.trim().toLowerCase();
-  const rows = sets.filter((m) => !q || m.id.toLowerCase().includes(q) || (m.shoe_id || '').toLowerCase().includes(q) || (m.timestamp || '').includes(q));
+  const rows = sets;   // the server searched (setsQuery): over all the sets, not only the ones loaded
   $('setList').innerHTML = rows.length ? rows.map((m) =>
     `<div class="lab-set${source && source.id === m.id ? ' sel' : ''}" data-id="${esc(m.id)}">
        <div class="t">${esc((m.timestamp || '').replace('T', ' ').slice(0, 19))}</div><div class="s">${esc(m.shoe_id || 'no QR value')}</div></div>`).join('')
@@ -50,15 +50,17 @@ function renderSets() {
 async function loadSets() {
   if (loadingSets || setsAll) return;
   loadingSets = true;
+  const q = setsQuery;
   try {
-    const part = await getJson(`/api/samples?status=all&limit=${PAGE}&offset=${sets.length}`);
+    const part = await getJson(`/api/samples?status=all&limit=${PAGE}&offset=${sets.length}&q=${encodeURIComponent(q)}`);
+    if (q !== setsQuery) return;   // the search changed meanwhile: that answer is for the old one
     sets = sets.concat(part);
     if (part.length < PAGE) setsAll = true;
     renderSets();
   } catch (e) {
-    $('setList').innerHTML = `<div class="empty">Could not load: ${esc(e.message)}</div>`;
+    if (q === setsQuery) $('setList').innerHTML = `<div class="empty">Could not load: ${esc(e.message)}</div>`;
   } finally {
-    loadingSets = false;
+    if (q === setsQuery) loadingSets = false;
   }
 }
 
@@ -183,7 +185,19 @@ $('srcTabs').onclick = (e) => {
   $('setBox').hidden = b.dataset.t !== 'set';
   $('upBox').hidden = b.dataset.t !== 'upload';
 };
-$('setQ').oninput = renderSets;
+// The search goes to the server (all the sets, like the Gallery), not only the sets loaded so far
+let setsTimer = null;
+$('setQ').oninput = () => {
+  clearTimeout(setsTimer);
+  setsTimer = setTimeout(() => {
+    const q = $('setQ').value.trim();
+    if (q === setsQuery) return;
+    setsQuery = q;
+    sets = []; setsAll = false; loadingSets = false;
+    $('setList').innerHTML = '<div class="empty">Searching…</div>';
+    loadSets();
+  }, 300);
+};
 $('setMore').onclick = loadSets;
 $('setList').onclick = (e) => {
   const row = e.target.closest('.lab-set');

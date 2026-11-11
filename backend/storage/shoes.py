@@ -338,12 +338,25 @@ class ShoeIndex:
             out.append(meta)
         return out
 
-    def recent(self, status="all", limit=0, offset=0):
-        """The sets' JSON, newest first. status: all | unlabeled | ok | ng | reject. Only the sets that are
-        returned are read from the disk."""
+    def recent(self, status="all", limit=0, offset=0, query=""):
+        """The sets' JSON, newest first. status: all | unlabeled | ok | ng | reject. query: only the sets whose QR value
+        or id contains it (a day / time like 2026-11-10 16:34 is also looked for as 20261110_1634). Searched in the
+        index, over ALL the sets; only the sets that are returned are read from the disk."""
         stems = self._order()
+        needle = (query or "").strip().lower()
+        packed = "".join(ch for ch in needle if ch.isdigit())
+        packed = (packed[:8] + "_" + packed[8:]) if len(packed) > 8 else packed
+        timeish = bool(needle) and all(ch.isdigit() or ch in "-: t_." for ch in needle)
+
+        def hit(stem, info):
+            if not needle:
+                return True
+            if needle in stem.lower() or needle in (info["shoe_id"] or "").lower():
+                return True
+            return timeish and bool(packed) and packed in stem
         with self._lock:
-            wanted = [s for s in stems if s in self._sets and (status == "all" or self._sets[s]["status"] == status)]
+            wanted = [s for s in stems if s in self._sets and (status == "all" or self._sets[s]["status"] == status)
+                      and hit(s, self._sets[s])]
         if offset:
             wanted = wanted[offset:]
         out = []

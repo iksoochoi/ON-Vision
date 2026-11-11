@@ -311,10 +311,11 @@ class SampleStore:
             return None
         return (thumb_path if thumb else image_path)(sample_id, role, primary=role == primary)
 
-    def list(self, status="all", limit=0, offset=0):
+    def list(self, status="all", limit=0, offset=0, query=""):
         """Newest first. status: all | unlabeled | ok | ng | reject. limit > 0 stops after that many (offset skips
-        the first ones); only the sets that are returned are read from the disk."""
-        return self._shoes.recent(status, limit, offset)
+        the first ones); query: only the sets whose QR value / id / time contains it (over all the sets). Only the
+        sets that are returned are read from the disk."""
+        return self._shoes.recent(status, limit, offset, query)
 
     # ---- by shoe (the browse page) -------------------------------------------
 

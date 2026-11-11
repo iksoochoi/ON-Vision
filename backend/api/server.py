@@ -84,7 +84,7 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, Pr
                 offset = max(0, int(query.get("offset", ["0"])[0]))
             except ValueError:
                 limit = offset = 0
-            self._send_json(store.list(status, limit, offset))
+            self._send_json(store.list(status, limit, offset, query.get("q", [""])[0][:100]))
         elif path == "/api/background/image":
             role = query.get("role", [registry.reference_role])[0]
             jpg = get_background(role).image_jpg() if registry.get(role) else None
