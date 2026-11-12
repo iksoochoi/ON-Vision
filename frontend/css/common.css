@@ -174,6 +174,15 @@ body.nav-open .sidenav a span {
 }
 .lightbox[hidden] { display: none; }
 .lightbox img { flex: 1; min-height: 0; max-width: 100%; object-fit: contain; }
+/* zoom.js: a picture shown large, zoomed with the wheel and moved by dragging */
+.zoom-view { position: relative; overflow: hidden; touch-action: none; }
+.lightbox .zoom-view { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
+.lightbox .zoom-view > img { flex: none; min-height: 0; max-width: 100%; max-height: 100%; object-fit: contain; }
+.zoom-target { transform-origin: 0 0; will-change: transform; }
+.zoom-view.zoomed { cursor: grab; }
+.zoom-view.panning, .zoom-view.panning * { cursor: grabbing !important; }
+.zoom-badge { position: absolute; right: 10px; bottom: 10px; z-index: 2; pointer-events: none; padding: 3px 9px; border-radius: 8px;
+              background: rgba(6, 8, 6, .72); color: #dfe6dc; font: 560 12px/1.4 var(--mono); }
 .lb-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: center; }
 .lb-bar a, .lb-bar button { padding: 4px 12px; font-size: 13px; }
 .marker {

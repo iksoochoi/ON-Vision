@@ -487,6 +487,8 @@ function closeLightbox() {
 
 document.getElementById('lbClose').onclick = closeLightbox;
 lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
+ImageZoom(document.getElementById('lbView'), document.getElementById('lbImg'),
+  { onBackground: closeLightbox, resetOnLoad: document.getElementById('lbImg') });   // wheel zoom, drag
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!lightbox.hidden) { closeLightbox(); return; }

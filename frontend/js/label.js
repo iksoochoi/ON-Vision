@@ -141,7 +141,6 @@ function select(i) {
   idx = i;
   markSelected();
   const stage = $('stage');
-  stage.classList.remove('zoom100');
   $('err').textContent = '';
   shownId = i >= 0 && i < items.length ? items[i].id : null;
   if (!shownId) {
@@ -380,8 +379,8 @@ function attachDrawing(wrap, im) {
     const onUp = (ev) => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
-      if (!drawing) {  // plain click: toggle original-size view
-        $('stage').classList.toggle('zoom100');
+      if (!drawing) {  // plain click: enlarge at that spot / back to the whole picture
+        stageZoom.toggleAt(ev.clientX, ev.clientY);
         return;
       }
       drawing.remove();
@@ -628,3 +627,7 @@ new EventSource('/events?topics=data').onmessage = (e) => {
   if (pendingSelectId) $('filter').value = 'all';
   await loadList();
 })();
+
+// Wheel zoom of the picture (zoom.js); the left button draws boxes, the right / middle one moves the enlarged picture.
+const stageZoom = ImageZoom($('stage'), () => document.querySelector('#stage .imgwrap'),
+  { panButtons: [1, 2], noDoubleClick: true });

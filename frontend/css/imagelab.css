@@ -52,6 +52,5 @@
 .lab-img img { display: block; width: 100%; height: auto; cursor: zoom-in; }
 .lab-img img[hidden] { display: none; }
 #infoCard { margin-top: 12px; font-family: var(--mono); font-size: 13px; word-break: break-word; }
-.lab-lbwrap { flex: 1; min-height: 0; width: 100%; overflow: auto; display: flex; }
-.lab-lbwrap img { margin: auto; max-width: 100%; max-height: calc(100vh - 80px); cursor: zoom-in; }
-.lab-lbwrap img.full { max-width: none; max-height: none; cursor: zoom-out; margin: 0; }
+.lab-lbwrap { flex: 1; min-height: 0; width: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.lab-lbwrap img { max-width: 100%; max-height: calc(100vh - 80px); }

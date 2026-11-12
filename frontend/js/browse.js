@@ -468,6 +468,7 @@ $('lbPrev').onclick = () => step(-1);
 $('lbNext').onclick = () => step(1);
 $('lbClose').onclick = closeLightbox;
 lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
+ImageZoom($('lbView'), $('lbImg'), { onBackground: closeLightbox, resetOnLoad: $('lbImg') });   // wheel zoom, drag
 document.addEventListener('keydown', (e) => {
   if (lightbox.hidden) return;
   if (e.key === 'Escape') closeLightbox();

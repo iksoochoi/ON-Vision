@@ -246,15 +246,14 @@ $('cropReset').onclick = () => { $('cx').value = 0; $('cy').value = 0; $('cw').v
 function openLightbox(img, caption) {
   if (img.hidden || !img.src) return;
   $('lbImg').src = img.src;
-  $('lbImg').classList.remove('full');
   $('lbCaption').textContent = caption;
   $('lb').hidden = false;
 }
 $('origImg').onclick = () => openLightbox($('origImg'), 'Original');
 $('resImg').onclick = () => openLightbox($('resImg'), 'Result: ' + byId[method].label);
-$('lbImg').onclick = () => $('lbImg').classList.toggle('full');
 $('lbClose').onclick = () => { $('lb').hidden = true; };
-$('lb').onclick = (e) => { if (e.target === $('lb') || e.target.id === 'lbWrap') $('lb').hidden = true; };
+$('lb').onclick = (e) => { if (e.target === $('lb')) $('lb').hidden = true; };
+ImageZoom($('lbWrap'), $('lbImg'), { onBackground: () => { $('lb').hidden = true; }, resetOnLoad: $('lbImg') });   // wheel zoom, drag
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('lb').hidden = true; });
 
 // ---- start --------------------------------------------------------------------------------------------------------

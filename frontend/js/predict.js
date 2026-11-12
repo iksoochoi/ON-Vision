@@ -345,7 +345,9 @@ $('detail').onclick = (e) => {
   if (box) openLightbox($('detail').dataset.id, box.dataset.role);
 };
 $('lbClose').onclick = () => { $('lb').hidden = true; };
-$('lb').onclick = (e) => { if (e.target === $('lb') || e.target.classList.contains('pred-lbwrap')) $('lb').hidden = true; };
+$('lb').onclick = (e) => { if (e.target === $('lb')) $('lb').hidden = true; };
+ImageZoom(document.querySelector('#lb .pred-lbwrap'), $('lbBox'),
+  { onBackground: () => { $('lb').hidden = true; }, resetOnLoad: $('lbImg') });   // wheel zoom, drag (boxes follow)
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('lb').hidden = true; });
 
 load(false);

@@ -34,6 +34,7 @@ STATIC_FILES = {
     "/js/imagelab.js":   ("js/imagelab.js",    "application/javascript; charset=utf-8"),
     "/js/light.js":      ("js/light.js",       "application/javascript; charset=utf-8"),
     "/js/light_panel.js": ("js/light_panel.js", "application/javascript; charset=utf-8"),
+    "/js/zoom.js":       ("js/zoom.js",        "application/javascript; charset=utf-8"),
     "/js/welcome.js":    ("js/welcome.js",     "application/javascript; charset=utf-8"),
 }
 

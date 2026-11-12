@@ -53,7 +53,7 @@
             <button id="bboxAuto" class="secondary" title="Rebuild from the background">Auto</button>
             <button id="bboxClear" class="secondary">Delete</button>
           </div>
-          <div class="hint">Drag on the image to draw a new box. Click to zoom in or out.</div>
+          <div class="hint">Drag on the image to draw a new box. Scroll to zoom, right-drag to move, click to zoom in or out.</div>
         </div>
         <div class="status-btns">
           <button data-status="ok" id="btnOk">OK<small>1</small></button>
@@ -92,6 +92,7 @@
   btn.onclick = function () { setNav(!open); };
 })();
 </script>
+<script src="/js/zoom.js"></script>
 <script src="/js/label.js"></script>
 </body>
 </html>
