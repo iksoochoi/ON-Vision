@@ -5,6 +5,7 @@
     python -m backend.cli.qc_export --xlsx ... --result Defect,Conflict      # only these results
     python -m backend.cli.qc_export --xlsx ... --any-day                     # also sets of other days than the QC day
     python -m backend.cli.qc_export --xlsx ... --defect-only --dry-run       # only Defect shoes, a folder per defect type
+    python -m backend.cli.qc_export --xlsx ... --dry-run --csv found.csv     # also the found / not found of every shoe
 
 The sheet is the 'Shoes' sheet of the "_QR only" workbook (one row per shoe: Date, QR, Result, Defect type ...), or a
 .csv with the same columns. A shoe is found by its QR value exactly as the line recorded it ('#' and all), compared with
@@ -26,7 +27,10 @@ result recorded). <shoe> is the QR value as it goes in file names ('#' becomes '
 (a shoe with several types; labels.csv does not say which), Unknown_type/... (no type recorded). Conflict shoes are not in
 it (the rows disagree on OK / Defect): add them with a second run, --result Conflict.
 
-The captures folder is only READ. --dry-run writes nothing: it counts the shoes found and not found per result, the sets
+--csv <file>: also write labels.csv (one row per shoe of the sheet, found yes / no, sets, pictures) to that file, with
+--dry-run too. train/qc_sheet/qr_only_workbook.py --found <file> puts it in the "_QR only" workbook (Found on Mac).
+
+The captures folder is only READ. --dry-run writes nothing but the --csv file: it counts the shoes found and not found per result, the sets
 and pictures, and the size of the zip (pictures are stored, not compressed: the zip is as large as the pictures)."""
 
 import argparse
@@ -232,6 +236,7 @@ def main():
     ap.add_argument("--any-day", action="store_true", help="also the sets of other days than the Date of the shoe in the sheet")
     ap.add_argument("--limit", type=int, default=0, help="only the first N shoes found (a test)")
     ap.add_argument("--dry-run", action="store_true", help="only count the shoes, sets, pictures and the size; write nothing")
+    ap.add_argument("--csv", help="also write labels.csv (found / not found per shoe) to this file (with --dry-run too)")
     args = ap.parse_args()
 
     sheet_path = Path(args.xlsx).expanduser()
@@ -340,6 +345,15 @@ def main():
         probe = probe.parent
     free = shutil.disk_usage(probe).free
     print(f"  zip       about {fmt_bytes(total)} -> {out}  (free at {probe}: {fmt_bytes(free)})")
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=list(rows[0]))
+    w.writeheader()
+    w.writerows(rows)
+    if args.csv:
+        csv_path = Path(args.csv).expanduser()
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        csv_path.write_text("﻿" + buf.getvalue(), encoding="utf-8", newline="")   # BOM: Excel opens it as UTF-8
+        print(f"  csv       {csv_path}: {asked} shoes, {n_found} found, {asked - n_found} not found")
     if args.dry_run:
         return
     if not entries:
@@ -354,10 +368,6 @@ def main():
                 "captures": str(C.CAPTURES_DIR), "days": [first, last], "shoes": asked, "found": n_found,
                 "sets": n_sets, "frames": n_frames, "pictures": n_pics, "bytes": total,
                 "per_result": per, "not_found": not_found, "sheet_problems": bad}
-    buf = io.StringIO()
-    w = csv.DictWriter(buf, fieldnames=list(rows[0]))
-    w.writeheader()
-    w.writerows(rows)
     readme = README.format(sheet=sheet_path.name, rows=asked, created=manifest["created"],
                            first=f"{first[:4]}-{first[4:6]}-{first[6:]}", last=f"{last[:4]}-{last[4:6]}-{last[6:]}",
                            days_rule="sets of any day" if args.any_day else "only the sets of the day the line checked the shoe",

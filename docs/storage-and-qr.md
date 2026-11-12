@@ -72,5 +72,10 @@ QR 위치는 찾았는데 값을 못 읽는 경우(번짐, 반사, 기울어진 
   ```
   .venv/bin/python -m backend.cli.qc_export --xlsx "docs/CTC_LS Shoes QC_raw data (11.05~09)_QR only.xlsx" --defect-only --dry-run
   ```
+- **엑셀에 매칭 결과 넣기**: `--csv <파일>`은 dry-run 때도 신발별 매칭 결과(labels.csv와 같은 내용: found yes/no, 세트·사진 수)를 그 파일에 씁니다. `--result`, `--defect-only`, `--limit` 없이 돌려야 시트의 모든 신발이 들어갑니다.
+  ```
+  .venv/bin/python -m backend.cli.qc_export --xlsx "docs/CTC_LS Shoes QC_raw data (11.05~09)_QR only.xlsx" --dry-run --csv exports/found.csv
+  ```
+  이 파일을 학습 PC로 가져와 `train/qc_sheet/qr_only_workbook.py <원본 QC.xlsx> <_QR only.xlsx> --found found.csv`로 `_QR only` 엑셀을 다시 만들면, Shoes 시트에 `Found on Mac`/`Sets on Mac` 열이, Summary의 모든 표에 `Found on Mac`/`Not found` 열이 생깁니다(학습 PC 전용, pandas·openpyxl 필요, git에 없음).
 - 옵션: `--result Defect,Conflict`(이 판정만, 폴더는 판정별), `--any-day`, `--sheet`(다른 시트), `--captures <경로>`, `--out <zip 경로>`, `--limit N`(찾은 신발 앞 N개만, 시험용).
 - zip은 `<이름>.zip.part`로 쓰다가 끝나면 이름을 바꿉니다(중간에 멈추면 .part는 지움). 사진 용량 + 200 MB보다 디스크가 적으면 시작하지 않습니다.
