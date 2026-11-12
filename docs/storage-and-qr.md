@@ -68,5 +68,9 @@ QR 위치는 찾았는데 값을 못 읽는 경우(번짐, 반사, 기울어진 
   - `labels.csv`: 시트의 모든 신발(못 찾은 것도) 한 줄씩: 판정, 불량 유형, 라인, L/R, 사이즈, 라스트, 찾았는지, 세트·사진 수, zip 안 경로.
   - `manifest.json`(옵션, 판정별 수, 못 찾은 QR 목록), `README.txt`.
 - **`--dry-run`**: 아무것도 쓰지 않고 판정별 신발 수·찾은 수·세트·사진·용량, 날짜별 수, 못 찾은 QR 예시, 남은 디스크를 보여 줍니다. 먼저 해 보세요.
-- 옵션: `--result Defect,Conflict`(이 판정만), `--any-day`, `--sheet`(다른 시트), `--captures <경로>`, `--out <zip 경로>`, `--limit N`(찾은 신발 앞 N개만, 시험용).
+- **불량만**: `--defect-only` → `exports/qc_defect_<첫날>_<마지막날>_<시각>.zip`. 판정 폴더 대신 **불량 유형 폴더**(Shoes 시트의 Defect type): `Bonding/<신발>/<세트>/...`, `Over_spray/...`(공백 → `_`), `Multiple_types/`(유형 여러 개, 어떤 유형인지는 시트에 없음), `Unknown_type/`(유형 기록 없음). dry-run에 유형별 신발·찾은 수·사진 수가 나옵니다. Conflict 신발은 들어가지 않습니다(필요하면 따로 `--result Conflict`). `--result`와 같이 쓸 수 없습니다.
+  ```
+  .venv/bin/python -m backend.cli.qc_export --xlsx "docs/CTC_LS Shoes QC_raw data (11.05~09)_QR only.xlsx" --defect-only --dry-run
+  ```
+- 옵션: `--result Defect,Conflict`(이 판정만, 폴더는 판정별), `--any-day`, `--sheet`(다른 시트), `--captures <경로>`, `--out <zip 경로>`, `--limit N`(찾은 신발 앞 N개만, 시험용).
 - zip은 `<이름>.zip.part`로 쓰다가 끝나면 이름을 바꿉니다(중간에 멈추면 .part는 지움). 사진 용량 + 200 MB보다 디스크가 적으면 시작하지 않습니다.

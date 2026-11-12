@@ -4,6 +4,7 @@
     python -m backend.cli.qc_export --xlsx "captures/CTC_LS Shoes QC_raw data (11.05~09)_QR only.xlsx"
     python -m backend.cli.qc_export --xlsx ... --result Defect,Conflict      # only these results
     python -m backend.cli.qc_export --xlsx ... --any-day                     # also sets of other days than the QC day
+    python -m backend.cli.qc_export --xlsx ... --defect-only --dry-run       # only Defect shoes, a folder per defect type
 
 The sheet is the 'Shoes' sheet of the "_QR only" workbook (one row per shoe: Date, QR, Result, Defect type ...), or a
 .csv with the same columns. A shoe is found by its QR value exactly as the line recorded it ('#' and all), compared with
@@ -19,6 +20,11 @@ Sets saved without a QR value (no-id) can not be matched and are not in it.
 
 <Result> is OK, Defect, Conflict (the line recorded the QR on several rows, with both OK and Defect) or NoResult (no
 result recorded). <shoe> is the QR value as it goes in file names ('#' becomes '-'), <set> the id of the shoe's pass.
+
+--defect-only: only the Defect shoes, in exports/qc_defect_<first day>_<last day>_<time>.zip, with a folder per defect type
+(the 'Defect type' column) in place of the result folder: Bonding/<shoe>/<set>/..., Over_spray/..., Multiple_types/...
+(a shoe with several types; labels.csv does not say which), Unknown_type/... (no type recorded). Conflict shoes are not in
+it (the rows disagree on OK / Defect): add them with a second run, --result Conflict.
 
 The captures folder is only READ. --dry-run writes nothing: it counts the shoes found and not found per result, the sets
 and pictures, and the size of the zip (pictures are stored, not compressed: the zip is as large as the pictures)."""
@@ -54,6 +60,12 @@ labels.csv: one row per shoe of the sheet (also the ones not found): result, def
 """
 X = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+
+
+def type_folder(defect_type):
+    """A defect type as a folder name: 'Over spray' -> Over_spray, none -> Unknown_type."""
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(defect_type or "").strip()).strip("._-")
+    return name or "Unknown_type"
 
 
 def log(message):
@@ -215,6 +227,8 @@ def main():
     ap.add_argument("--captures", help="the captures folder (default ON_CAPTURES_DIR / captures); only read")
     ap.add_argument("--out", help="the zip to write (default exports/qc_<first>_<last>_<time>.zip)")
     ap.add_argument("--result", help="only these results, e.g. Defect,Conflict (OK, Defect, Conflict, NoResult; default all)")
+    ap.add_argument("--defect-only", action="store_true",
+                    help="only the Defect shoes, a folder per defect type (qc_defect_....zip)")
     ap.add_argument("--any-day", action="store_true", help="also the sets of other days than the Date of the shoe in the sheet")
     ap.add_argument("--limit", type=int, default=0, help="only the first N shoes found (a test)")
     ap.add_argument("--dry-run", action="store_true", help="only count the shoes, sets, pictures and the size; write nothing")
@@ -233,6 +247,10 @@ def main():
     from backend.storage.paths import ID_RE, image_path, primary_role, qr_prefix, time_key
 
     shoes, bad = read_sheet(sheet_path, args.sheet)
+    if args.defect_only:
+        if args.result and {r.strip() for r in args.result.split(",") if r.strip()} != {"Defect"}:
+            raise SystemExit("--defect-only takes the Defect shoes only: leave out --result")
+        args.result = "Defect"
     if args.result:
         want = {RESULT_FOLDERS.get(r.strip(), r.strip()) for r in args.result.split(",") if r.strip()}
         unknown = want - set(FOLDER_ORDER)
@@ -251,9 +269,10 @@ def main():
     # what goes in: per shoe the sets, frames and pictures
     rows, entries, folders, total = [], [], {}, 0
     per = {f: {"asked": 0, "found": 0, "sets": 0, "pictures": 0, "bytes": 0} for f in FOLDER_ORDER}
-    per_day = {}
+    per_day, per_type = {}, {}
     for s in shoes:
         f = s["folder"]
+        top = type_folder(s.get("Defect type")) if args.defect_only else f   # the first folder in the zip
         per[f]["asked"] += 1
         sets = found.get(s["QR"], [])
         name = ""
@@ -261,14 +280,14 @@ def main():
         if sets:
             base = qr_prefix(s["QR"]) or "shoe"
             name, k = base, 1
-            while (f, name) in folders:
+            while (top, name) in folders:
                 k += 1
                 name = f"{base}_{k}"
-            folders[(f, name)] = s["QR"]
+            folders[(top, name)] = s["QR"]
             for set_name, frames in sets:
                 for meta in frames:
                     files = frame_files(meta, image_path, primary_role)
-                    entries.append((f"{f}/{name}/{set_name}", meta, files))
+                    entries.append((f"{top}/{name}/{set_name}", meta, files))
                     n_frames += 1
                     n_pics += len(files)
                     size += sum(sz for _, _, sz in files)
@@ -279,12 +298,15 @@ def main():
             d = per_day.setdefault(s["day"], [0, 0, 0, 0])
             d[0] += 1; d[1] += len(sets); d[2] += n_pics; d[3] += size
             total += size
+        if args.defect_only:
+            t = per_type.setdefault(top, [0, 0, 0])
+            t[0] += 1; t[1] += bool(sets); t[2] += n_pics
         rows.append({"qr": s["QR"], "date": f"{s['day'][:4]}-{s['day'][4:6]}-{s['day'][6:]}", "result": s["Result"] or "(blank)",
                      "folder": f, "defect_type": str(s.get("Defect type", "")).strip(),
                      "conflict_types": str(s.get("Conflict: types recorded", "")).strip(),
                      "unit": s.get("Unit (QR)", ""), "lr": s.get("L/R (QR)", ""), "size": s.get("Size (QR)", ""),
                      "last": s.get("Last", ""), "found": "yes" if sets else "no", "sets": len(sets),
-                     "frames": n_frames, "pictures": n_pics, "path": f"{f}/{name}" if name else ""})
+                     "frames": n_frames, "pictures": n_pics, "path": f"{top}/{name}" if name else ""})
     asked = len(shoes)
     n_found = sum(1 for r in rows if r["found"] == "yes")
     n_sets = sum(r["sets"] for r in rows)
@@ -292,7 +314,7 @@ def main():
     n_pics = sum(r["pictures"] for r in rows)
     first, last = info["first"], info["last"]
     out = Path(args.out).expanduser() if args.out else \
-        C.EXPORTS_DIR / f"qc_{first}_{last}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        C.EXPORTS_DIR / f"qc_{'defect_' if args.defect_only else ''}{first}_{last}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
 
     print(f"{'dry run (nothing is written)' if args.dry_run else 'export'}: {C.CAPTURES_DIR}")
     print(f"  sheet     {sheet_path.name} [{args.sheet}], {asked} shoes, days {first[:4]}-{first[4:6]}-{first[6:]} ~ "
@@ -304,6 +326,10 @@ def main():
         if p["asked"]:
             print(f"  {f:9} {p['asked']:6d} {p['found']:6d} {p['sets']:6d} {p['pictures']:9d} {fmt_bytes(p['bytes']):>10}")
     print(f"  {'total':9} {asked:6d} {n_found:6d} {n_sets:6d} {n_pics:9d} {fmt_bytes(total):>10}")
+    if per_type:
+        print(f"  {'defect type (folder)':22} {'shoes':>6} {'found':>6} {'pictures':>9}")
+        for t, (n_sh, n_fd, n_p) in sorted(per_type.items(), key=lambda x: (-x[1][0], x[0])):
+            print(f"  {t:22} {n_sh:6d} {n_fd:6d} {n_p:9d}")
     for day, (n_sh, n_st, n_p, n_b) in sorted(per_day.items()):
         print(f"  {day[:4]}-{day[4:6]}-{day[6:]}  {n_sh:5d} shoes  {n_st:5d} sets  {n_p:6d} pictures  {fmt_bytes(n_b):>10}")
     not_found = [r["qr"] for r in rows if r["found"] == "no"]
@@ -322,7 +348,9 @@ def main():
         raise SystemExit(f"not enough free disk space at {probe} for the zip ({fmt_bytes(total)} needed)")
 
     manifest = {"created": datetime.now().isoformat(timespec="seconds"), "sheet": sheet_path.name, "sheet_name": args.sheet,
-                "options": {"result": args.result or "all", "any_day": args.any_day, "limit": args.limit},
+                "options": {"result": args.result or "all", "defect_only": args.defect_only, "any_day": args.any_day,
+                            "limit": args.limit},
+                "per_defect_type": {t: {"shoes": v[0], "found": v[1], "pictures": v[2]} for t, v in per_type.items()},
                 "captures": str(C.CAPTURES_DIR), "days": [first, last], "shoes": asked, "found": n_found,
                 "sets": n_sets, "frames": n_frames, "pictures": n_pics, "bytes": total,
                 "per_result": per, "not_found": not_found, "sheet_problems": bad}
@@ -334,6 +362,10 @@ def main():
                            first=f"{first[:4]}-{first[4:6]}-{first[6:]}", last=f"{last[:4]}-{last[4:6]}-{last[6:]}",
                            days_rule="sets of any day" if args.any_day else "only the sets of the day the line checked the shoe",
                            found=n_found, asked=asked, sets=n_sets, frames=n_frames, pictures=n_pics)
+    if args.defect_only:
+        readme += ("\nDefect shoes only (--defect-only): the first folder is the defect type in place of the result "
+                   "(Bonding/<shoe>/<set>/...).\nMultiple_types: the line recorded several types on the shoe; "
+                   "Unknown_type: no type recorded. Conflict shoes are not in it.\n")
     out.parent.mkdir(parents=True, exist_ok=True)
     part = out.with_name(out.name + ".part")
     written, step, done_bytes = 0, max(1, len(entries) // 20), 0
