@@ -54,3 +54,19 @@ QR 위치는 찾았는데 값을 못 읽는 경우(번짐, 반사, 기울어진 
 - **되돌리기**: `.env`에 `ON_QR_ENHANCE=0`을 넣고 앱을 재시작하면 이 기능을 쓰지 않고 이전과 똑같이 읽습니다(시험으로 확인: 같은 사진 36장 x 3가지 설정에서 읽은 값/위치/크기 동일). zxing만 끄려면 `ON_QR_ZXING=0`. 코드를 되돌리려면 이 기능의 커밋을 `git revert`하면 됩니다.
 - **설치**: zxing-cpp는 `requirements.txt`에 있습니다. Mac에서 한 번 `.venv/bin/python -m pip install zxing-cpp==3.1.1`(또는 `pip install -r requirements.txt`)을 실행하세요.
 - **한계**: 크기가 너무 작거나(대략 70px 미만) 번짐이 칸 몇 개 폭을 넘으면(가로 번짐 약 12px 이상) 읽지 못합니다. 이 경우 해결책은 카메라 쪽(초점, 노출, 해상도)입니다.
+
+## 현장 QC 시트의 신발만 골라 zip으로 (`backend.cli.qc_export`)
+현장에서 기록한 정상/불량 엑셀의 QR 값으로, Mac에 저장된 세트를 골라 **판정별 폴더**로 묶습니다. captures 폴더는 읽기만 합니다.
+```
+.venv/bin/python -m backend.cli.qc_export --xlsx "docs/CTC_LS Shoes QC_raw data (11.05~09)_QR only.xlsx" --dry-run
+.venv/bin/python -m backend.cli.qc_export --xlsx "docs/CTC_LS Shoes QC_raw data (11.05~09)_QR only.xlsx"
+```
+- 읽는 시트: `_QR only` 통합 문서의 **Shoes** 시트(신발 1켤레 = 1행: Date, QR, Result, Defect type ...). 같은 열을 가진 .csv도 됩니다. 엑셀은 표준 라이브러리로 읽으므로 Mac에 openpyxl이 없어도 됩니다.
+- 찾는 방법: 엑셀 QR 값(`#` 포함)과 세트에 저장된 QR 값(`shoe_id`)이 **정확히 같은** 세트. 기본은 **엑셀 Date와 같은 날** 찍은 세트만(`--any-day`면 모든 날). QR을 못 읽은 세트(no-id)는 맞출 수 없어 들어가지 않습니다.
+- 결과: `exports/qc_<첫날>_<마지막날>_<시각>.zip` (원본 크기 사진, 압축 없이 저장)
+  - `OK/`, `Defect/`, `Conflict/`(같은 QR이 여러 행에 정상·불량으로 섞여 기록), `NoResult/`(판정 빈칸) 아래 `<신발>/<세트>/<id>_<camera>.jpg`, `<id>.json`. 폴더 이름의 신발은 파일 이름용 QR(`#` → `-`).
+  - `labels.csv`: 시트의 모든 신발(못 찾은 것도) 한 줄씩: 판정, 불량 유형, 라인, L/R, 사이즈, 라스트, 찾았는지, 세트·사진 수, zip 안 경로.
+  - `manifest.json`(옵션, 판정별 수, 못 찾은 QR 목록), `README.txt`.
+- **`--dry-run`**: 아무것도 쓰지 않고 판정별 신발 수·찾은 수·세트·사진·용량, 날짜별 수, 못 찾은 QR 예시, 남은 디스크를 보여 줍니다. 먼저 해 보세요.
+- 옵션: `--result Defect,Conflict`(이 판정만), `--any-day`, `--sheet`(다른 시트), `--captures <경로>`, `--out <zip 경로>`, `--limit N`(찾은 신발 앞 N개만, 시험용).
+- zip은 `<이름>.zip.part`로 쓰다가 끝나면 이름을 바꿉니다(중간에 멈추면 .part는 지움). 사진 용량 + 200 MB보다 디스크가 적으면 시작하지 않습니다.
