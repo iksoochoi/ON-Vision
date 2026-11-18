@@ -121,7 +121,8 @@ function drawPreview(p) {
     const r = pr.find((x) => x.key === k);
     return `<label><input type="checkbox" value="${k}" ${k !== 'NoResult' ? 'checked' : ''}> ${k} <span class="mono">(${r.found} shoes, ${size(r.bytes)})</span></label>`;
   }).join('');
-  for (const el of document.querySelectorAll('#results input, input[name=mode], #anyDay')) el.onchange = drawSize;
+  for (const el of document.querySelectorAll('#results input, input[name=mode], #anyDay, #noSet')) el.onchange = drawSize;
+  $('okPerDay').oninput = drawSize;
 }
 
 function drawSize() {
@@ -129,9 +130,11 @@ function drawSize() {
   if (!p) return;
   const mode = document.querySelector('input[name=mode]:checked').value;
   $('results').classList.toggle('off', mode !== 'all');
+  $('okDayBox').classList.toggle('off', mode !== 'defect');
   let bytes, shoes;
   if (mode === 'defect') {
-    bytes = p.defect ? p.defect.bytes : 0; shoes = p.defect ? p.defect.found : 0;
+    const ok = okSample();
+    bytes = (p.defect ? p.defect.bytes : 0) + ok * (p.ok_shoe_bytes || 0); shoes = (p.defect ? p.defect.found : 0) + ok;
   } else {
     const want = [...document.querySelectorAll('#results input:checked')].map((i) => i.value);
     const rows = (p.per_result || []).filter((r) => want.includes(r.key));
@@ -146,6 +149,9 @@ function drawSize() {
 }
 
 const shoesN = (n) => `${n} shoe${n === 1 ? '' : 's'}`;
+const okPerDay = () => Math.max(0, Math.min(100, Math.floor(+$('okPerDay').value || 0)));
+// the OK shoes of the defect zip's OK/ folder: okPerDay of each QC day, at most the ones found that day
+const okSample = () => Object.values((st.preview && st.preview.ok_days) || {}).reduce((a, n) => a + Math.min(n, okPerDay()), 0);
 
 // the folders of the zip with these options (as backend.cli.qc_export writes it); the first folder opened with one
 // real set of this sheet as the example
@@ -157,6 +163,7 @@ function drawTree(mode) {
   let folders;
   if (mode === 'defect') {
     folders = ((p.defect && p.defect.per_type) || []).filter((r) => r.found).map((r) => [r.key, r.found]);
+    if (okSample()) folders.push(['OK', okSample(), `${okPerDay()} per day`]);
   } else {
     const want = [...document.querySelectorAll('#results input:checked')].map((i) => i.value);
     folders = (p.per_result || []).filter((r) => want.includes(r.key) && r.found).map((r) => [r.key, r.found]);
@@ -167,23 +174,29 @@ function drawTree(mode) {
     `├── labels.csv        ${N('every shoe of the sheet: result, type, found, path')}`,
     `├── manifest.json     ${N('options, counts, shoes not found')}`];
   if (!folders.length) lines.push(`└── ${N('(no shoes found with these options)')}`);
-  folders.forEach(([name, n], k) => {
+  folders.forEach(([name, n, what], k) => {
     const last = k === folders.length - 1;
     const a = last ? '    ' : '│   ';
-    lines.push(`${last ? '└──' : '├──'} ${D(name + '/')}  ${N(shoesN(n))}`);
+    lines.push(`${last ? '└──' : '├──'} ${D(name + '/')}  ${N(shoesN(n) + (what ? ` (${what})` : ''))}`);
     if (k === 0) {
       const more = n > 1;
       const b = more ? '│   ' : '    ';
       lines.push(`${a}${more ? '├──' : '└──'} ${D(e.shoe + '/')}  ${N('a shoe, e.g. (its QR, # → -)')}`);
-      lines.push(`${a}${b}└── ${D(e.set + '/')}  ${N('a pass of the shoe')}`);
-      lines.push(`${a}${b}    ├── &lt;id&gt;.json  ${N('the data of the frame')}`);
-      e.cameras.forEach((c, i) => lines.push(`${a}${b}    ${i === e.cameras.length - 1 ? '└──' : '├──'} &lt;id&gt;_${esc(c)}.jpg`));
+      let c2 = b;   // the files: in the pass folder, or straight in the shoe's folder
+      if (!$('noSet').checked) {
+        lines.push(`${a}${b}└── ${D(e.set + '/')}  ${N('a pass of the shoe')}`);
+        c2 = b + '    ';
+      }
+      lines.push(`${a}${c2}├── &lt;id&gt;.json  ${N('the data of the frame')}`);
+      e.cameras.forEach((c, i) => lines.push(`${a}${c2}${i === e.cameras.length - 1 ? '└──' : '├──'} &lt;id&gt;_${esc(c)}.jpg`));
       if (more) lines.push(`${a}└── ${N(`… ${n - 1} more shoe${n - 1 === 1 ? '' : 's'}`)}`);
     }
   });
   const notes = [`<id>: the frame, e.g. ${e.id}`];
   if (mode === 'defect' && p.defect && p.defect.multiple) notes.push(`a shoe with several types is in each of its type folders (${p.defect.multiple} shoes)`);
+  if (mode === 'defect' && okSample()) notes.push(`OK/: ${okPerDay()} OK shoes of each QC day (of the ones found), spread over the day`);
   if ($('anyDay').checked) notes.push("a shoe's sets of other days are in its folder too");
+  if ($('noSet').checked) notes.push("several passes of a shoe: all their frames in the shoe's folder (<id> differs by the time)");
   $('tree').innerHTML = lines.join('\n') + (notes.length ? '\n\n' + notes.map((t) => N('* ' + t)).join('\n') : '');
 }
 
@@ -225,7 +238,7 @@ function render(s) {
   }
   $('doneLine').hidden = stage !== 'done';
   if (stage === 'done' && ex.zip) {
-    $('doneLine').innerHTML = `Done: ${ex.shoes} shoes, ${ex.sets} sets — <a href="/exports/${encodeURIComponent(ex.zip)}">${esc(ex.zip)}</a> (${size(ex.zip_bytes)})`;
+    $('doneLine').innerHTML = `Done: ${ex.shoes} shoes${ex.ok_shoes ? ` (${ex.ok_shoes} of them OK in OK/)` : ''}, ${ex.sets} sets — <a href="/exports/${encodeURIComponent(ex.zip)}">${esc(ex.zip)}</a> (${size(ex.zip_bytes)})`;
   }
   if (p) drawSize();
 
@@ -242,7 +255,8 @@ $('goBtn').onclick = async () => {
   const results = [...document.querySelectorAll('#results input:checked')].map((i) => i.value);
   if (mode === 'all' && !results.length) { $('progLine').textContent = 'Choose at least one result.'; return; }
   try {
-    render(await api('/api/qc/export', { mode, results, any_day: $('anyDay').checked }));
+    render(await api('/api/qc/export', { mode, results, any_day: $('anyDay').checked, set_folder: !$('noSet').checked,
+                                         ok_per_day: mode === 'defect' ? okPerDay() : 0 }));
     poll();
   } catch (e) {
     $('progLine').textContent = `Error: ${e.message}`;

@@ -141,6 +141,13 @@ def _read(path, name):
         multi = X.recorded_types(None, "", defect)
         P_def = X.plan(defect, found, True, multi, image_path, primary_role, qr_prefix) if defect else None
         found_map = {r["qr"]: (r["found"], r["sets"]) for r in P_all["rows"]}
+        # the OK shoes found per QC day (for the OK sample of the defect zip) and the size of one: an estimate
+        ok_days, ok_pics = {}, []
+        for r in P_all["rows"]:
+            if r["folder"] == "OK" and r["found"] == "yes":
+                ok_days[r["date"]] = ok_days.get(r["date"], 0) + 1
+                ok_pics.append(r["pictures"])
+        per_pic = P_all["total"] / P_all["pictures"] if P_all["pictures"] else 0
         c = Q.counts(shoes)
         models = {}
         for s in shoes:
@@ -166,6 +173,7 @@ def _read(path, name):
                           for r in P_all["rows"] if r["found"] == "no"][:NOT_FOUND_SHOWN],
             "not_found_count": P_all["asked"] - P_all["found"],
             "example": example,
+            "ok_days": ok_days, "ok_shoe_bytes": round(per_pic * (sum(ok_pics) / len(ok_pics))) if ok_pics else 0,
         }
         _set(step="writing the summary workbook", preview=preview)
         wb = path.with_name(f"{path.stem}_QR only.xlsx")
@@ -187,9 +195,10 @@ def _read(path, name):
 
 # ---- export: the zip ----
 
-def export(mode, results=None, any_day=False):
-    """Start the zip. mode 'all' (results: a list of OK / Defect / Conflict / NoResult, empty = all) or 'defect'.
-    Returns an error text or None."""
+def export(mode, results=None, any_day=False, set_folder=True, ok_per_day=0):
+    """Start the zip. mode 'all' (results: a list of OK / Defect / Conflict / NoResult, empty = all) or 'defect'
+    (ok_per_day > 0: also OK/ with that many OK shoes of each QC day); set_folder False: no folder per pass
+    (<folder>/<shoe>/<id>_<camera>.jpg). Returns an error text or None."""
     if busy():
         return "busy: wait until the work in progress is done (or cancel it)"
     with _lock:
@@ -198,24 +207,28 @@ def export(mode, results=None, any_day=False):
         shoes = list(_data["shoes"])
         name = _data["name"]
     defect_only = mode == "defect"
+    ok_per_day = max(0, min(100, int(ok_per_day or 0))) if defect_only else 0
+    ok_pool = [s for s in shoes if s["folder"] == "OK"] if ok_per_day else []
     try:
         shoes = X.select(shoes, None if defect_only else (list(results or []) or None), defect_only)
     except SystemExit as e:
         return str(e)
     _cancel.clear()
-    _set(stage="exporting", step="looking for the sets", export={"mode": mode, "results": results or [], "any_day": bool(any_day),
+    _set(stage="exporting", step="looking for the sets", export={"mode": mode, "results": results or [], "any_day": bool(any_day), "set_folder": bool(set_folder), "ok_per_day": ok_per_day,
                                                                   "done": 0, "total": 0, "bytes": 0, "total_bytes": 0,
                                                                   "started": time.time()}, error=None)
-    threading.Thread(target=_export, args=(shoes, name, defect_only, bool(any_day), results), daemon=True).start()
+    threading.Thread(target=_export, args=(shoes, name, defect_only, bool(any_day), results, bool(set_folder),
+                                           ok_pool, ok_per_day), daemon=True).start()
     return None
 
 
-def _export(shoes, name, defect_only, any_day, results):
+def _export(shoes, name, defect_only, any_day, results, set_folder=True, ok_pool=(), ok_per_day=0):
     out = None
     try:
-        found, info = X.find_sets(shoes, any_day, C, ID_RE, time_key, cancel=_cancel.is_set)
+        found, info = X.find_sets(shoes + list(ok_pool), any_day, C, ID_RE, time_key, cancel=_cancel.is_set)
         multi = X.recorded_types(None, "", shoes) if defect_only else {}
-        P = X.plan(shoes, found, defect_only, multi, image_path, primary_role, qr_prefix)
+        ok_pick = X.pick_ok(ok_pool, found, ok_per_day, time_key) if ok_pool else []
+        P = X.plan(shoes + ok_pick, found, defect_only, multi, image_path, primary_role, qr_prefix, set_folder)
         if not P["entries"]:
             raise ValueError("no sets found for these shoes: nothing to write")
         free = shutil.disk_usage(C.EXPORTS_DIR if C.EXPORTS_DIR.exists() else C.CAPTURES_DIR).free
@@ -225,10 +238,13 @@ def _export(shoes, name, defect_only, any_day, results):
         first, last = info["first"], info["last"]
         out = C.EXPORTS_DIR / f"qc_{'defect_' if defect_only else ''}{first}_{last}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
         opts = {"result": "Defect" if defect_only else (",".join(results) if results else "all"),
-                "defect_only": defect_only, "any_day": any_day, "limit": 0, "problems": [], "from": "QC Export page"}
+                "defect_only": defect_only, "any_day": any_day, "limit": 0, "set_folder": set_folder, "ok_per_day": ok_per_day,
+                "problems": [],
+                "from": "QC Export page"}
         readme, manifest = X.make_texts(P, f"{name} [{Q.MASTER}]", opts, info, C.CAPTURES_DIR)
         with _lock:
-            _job["export"].update(total=len(P["entries"]), total_bytes=P["total_zip"], shoes=P["found"], sets=P["sets"])
+            _job["export"].update(total=len(P["entries"]), total_bytes=P["total_zip"], shoes=P["found"], sets=P["sets"],
+                                  ok_shoes=len(ok_pick))
             _job["step"] = "writing the zip"
 
         def progress(n, total, done):

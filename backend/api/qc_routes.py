@@ -2,7 +2,8 @@
 
     GET  /api/qc/status                       the work (stage, preview, progress), the recent zips
     POST /api/qc/upload  {"name", "data"}     data: the .xlsx as base64 (or a data URL)
-    POST /api/qc/export  {"mode": "all" | "defect", "results": [...], "any_day": bool}
+    POST /api/qc/export  {"mode": "all" | "defect", "results": [...], "any_day": bool, "set_folder": bool (default true),
+                          "ok_per_day": int (defect: also OK/ with this many OK shoes of each QC day)}
     POST /api/qc/cancel  /  POST /api/qc/reset
     GET  /api/qc/file?name=<file>             an uploaded / summary workbook of exports/qc_sheets
     the zip: GET /exports/<qc_...zip> (export_routes)"""
@@ -39,7 +40,12 @@ class QcRoutes:
         if mode not in ("all", "defect") or not isinstance(results, list) or not all(isinstance(r, str) for r in results):
             self.send_error(400, "mode: all / defect, results: a list of OK / Defect / Conflict / NoResult")
             return
-        err = qc_jobs.export(mode, results, bool(data.get("any_day")))
+        try:
+            ok_per_day = int(data.get("ok_per_day") or 0)
+        except (TypeError, ValueError):
+            self.send_error(400, "ok_per_day: a number")
+            return
+        err = qc_jobs.export(mode, results, bool(data.get("any_day")), data.get("set_folder", True) is not False, ok_per_day)
         if err:
             self.send_error(400, err)
             return

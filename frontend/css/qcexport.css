@@ -38,6 +38,8 @@ details table.qt { margin-top: 6px; }
 .results { display: flex; gap: 14px; flex-wrap: wrap; padding-left: 26px; font-size: 13px; color: var(--dim); }
 .results label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
 .results.off { opacity: .4; pointer-events: none; }
+.okday input.num { width: 64px; padding: 3px 6px; background: var(--well); border: 1px solid var(--line); border-radius: 6px;
+                   font-family: var(--mono); text-align: right; }
 .row.go { margin-top: 12px; }
 .zipgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 @media (max-width: 1000px) { .zipgrid { grid-template-columns: minmax(0, 1fr); } }
