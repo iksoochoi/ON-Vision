@@ -22,7 +22,8 @@
   --mono: "Fragment Mono", ui-monospace, monospace;
 }
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+html { height: 100%; }
+body { min-height: 100%; }   /* not height: a page longer than the window must keep its bars (sticky) in body */
 body {
   margin: 0;
   background: var(--bg);
@@ -78,6 +79,9 @@ button:disabled { opacity: .4; cursor: default; }
 body.nav-open #navToggle { background: var(--accent); color: var(--accent-ink); }
 body.nav-open { --side-w: 200px; }
 body:has(.tabbar) { --chrome-h: calc(var(--topbar-h) + var(--toolbar-h)); }
+/* the bars stay at the top when a page scrolls (the side menu is fixed below them: no gap above it) */
+.topbar { position: sticky; top: 0; z-index: 9; }
+.tabbar { position: sticky; top: var(--topbar-h); z-index: 9; }
 .topbar .spacer, .tabbar .spacer { flex: 1; }
 .sidenav {
   position: fixed;

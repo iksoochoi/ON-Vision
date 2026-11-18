@@ -147,6 +147,11 @@ def _read(path, name):
             models[s["Model (QR)"]] = models.get(s["Model (QR)"], 0) + 1
         with _lock:
             _data.update(shoes=shoes, path=path, name=name, sheet=sheet)
+        example = None   # one set as it goes in the zip, for the page's tree: <shoe>/<set>/<id>.json, <id>_<camera>.jpg
+        if P_all["entries"]:
+            folder, meta, files = P_all["entries"][0]
+            parts = folder.split("/")
+            example = {"shoe": parts[1], "set": parts[2], "id": meta["id"], "cameras": [r for r, _, _ in files]}
         preview = {
             "rows": len(sheet["data"]), "shoes": len(shoes), "days": c["days"], "models": models,
             "problems": sheet["problems"][:30], "problems_count": len(sheet["problems"]),
@@ -160,6 +165,7 @@ def _read(path, name):
             "not_found": [{"qr": r["qr"], "date": r["date"], "result": r["result"], "type": r["defect_type"]}
                           for r in P_all["rows"] if r["found"] == "no"][:NOT_FOUND_SHOWN],
             "not_found_count": P_all["asked"] - P_all["found"],
+            "example": example,
         }
         _set(step="writing the summary workbook", preview=preview)
         wb = path.with_name(f"{path.stem}_QR only.xlsx")

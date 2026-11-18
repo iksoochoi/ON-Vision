@@ -22,6 +22,10 @@ table.qt td { font-family: var(--mono); }
 table.qt tr.total td { font-weight: 680; color: var(--text); border-top: 1px solid var(--dim); }
 table.qt td.low { color: var(--warn); }
 table.qt a { color: var(--accent); }
+/* the share of a defect type: the number over a bar */
+table.qt .share { position: relative; display: inline-block; width: 130px; padding: 0 4px; text-align: right; }
+table.qt .share i { position: absolute; left: 0; top: 2px; bottom: 2px; max-width: 100%; border-radius: 3px;
+                    background: var(--accent); opacity: .22; }
 
 details { margin-top: 12px; font-size: 13px; }
 details summary { cursor: pointer; color: var(--dim); }
@@ -35,6 +39,14 @@ details table.qt { margin-top: 6px; }
 .results label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
 .results.off { opacity: .4; pointer-events: none; }
 .row.go { margin-top: 12px; }
+.zipgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 1000px) { .zipgrid { grid-template-columns: minmax(0, 1fr); } }
+.treebox { min-width: 0; }
+/* a system mono font: it has the box drawing characters (├ │ └), so the lines meet */
+pre.tree { margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--panel); font: 12px/1.55 ui-monospace, Menlo, Consolas, monospace;
+           overflow: auto; max-height: 460px; white-space: pre; color: var(--text); }
+pre.tree .d { color: var(--accent); }
+pre.tree .n { color: var(--dim); }
 
 .bar { margin-top: 12px; height: 10px; border-radius: 6px; background: var(--panel); overflow: hidden; }
 .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .4s; }

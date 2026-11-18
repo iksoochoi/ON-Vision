@@ -96,10 +96,14 @@ function drawPreview(p) {
     ['Total', p.shoes, p.found, pct(p.found, p.shoes), p.sets, p.pictures, size(p.bytes)]);
   const d = p.defect;
   if (d) {
-    $('tType').innerHTML = tableHtml(['Defect type (folder)', 'Shoes', 'Found', 'Pictures'],
-      d.per_type.map((r) => [r.key, r.shoes, r.found, r.pictures]));
-    $('multiLine').textContent = d.multiple
-      ? `${d.multiple} shoes with several types are counted under each of them (in the zip: in each folder, ${size(d.copies_bytes)} more).` : '';
+    // share: of the Defect shoes (a shoe with several types counts in each of them, so the shares add up to a bit more than 100%)
+    const share = (n) => (d.shoes ? `${((100 * n) / d.shoes).toFixed(1)}%` : '-');
+    const top = Math.max(1, ...d.per_type.map((r) => r.shoes));   // the bar: against the most common type
+    $('tType').innerHTML = tableHtml(['Defect type (folder)', 'Shoes', 'Share', 'Found', 'Pictures'],
+      d.per_type.map((r) => [r.key, r.shoes, { html: `<span class="share"><i style="width:${(100 * r.shoes) / top}%"></i>${share(r.shoes)}</span>` }, r.found, r.pictures]),
+      ['Defect shoes', d.shoes, '100%', d.found, d.pictures]);
+    $('multiLine').textContent = 'Share: of the Defect shoes.' + (d.multiple
+      ? ` ${d.multiple} shoes with several types are counted under each of them, so the shares add up to more than 100% (in the zip: in each folder, ${size(d.copies_bytes)} more).` : '');
   } else {
     $('tType').innerHTML = '<tr><td>No Defect shoes</td></tr>';
     $('multiLine').textContent = '';
@@ -138,6 +142,49 @@ function drawSize() {
   $('sizeLine').innerHTML = `About <b>${size(bytes)}</b> (${shoes} shoes found)${$('anyDay').checked ? ' + the sets of other days' : ''}`
     + ` · free on this Mac ${size(free)}${tight ? ' — <b>not enough</b>' : ''}`;
   $('goBtn').disabled = !shoes || tight || st.stage !== 'ready';
+  drawTree(mode);
+}
+
+const shoesN = (n) => `${n} shoe${n === 1 ? '' : 's'}`;
+
+// the folders of the zip with these options (as backend.cli.qc_export writes it); the first folder opened with one
+// real set of this sheet as the example
+function drawTree(mode) {
+  const p = st.preview;
+  const e = p.example || { shoe: '<shoe QR>', set: '<set>', id: '<id>', cameras: ['top', 'back', 'left', 'front', 'right'] };
+  const D = (t) => `<span class="d">${esc(t)}</span>`;
+  const N = (t) => `<span class="n">${esc(t)}</span>`;
+  let folders;
+  if (mode === 'defect') {
+    folders = ((p.defect && p.defect.per_type) || []).filter((r) => r.found).map((r) => [r.key, r.found]);
+  } else {
+    const want = [...document.querySelectorAll('#results input:checked')].map((i) => i.value);
+    folders = (p.per_result || []).filter((r) => want.includes(r.key) && r.found).map((r) => [r.key, r.found]);
+  }
+  const zip = `qc_${mode === 'defect' ? 'defect_' : ''}${p.days[0]}_${p.days[1]}_<time>.zip`;
+  const lines = [D(zip),
+    `├── README.txt`,
+    `├── labels.csv        ${N('every shoe of the sheet: result, type, found, path')}`,
+    `├── manifest.json     ${N('options, counts, shoes not found')}`];
+  if (!folders.length) lines.push(`└── ${N('(no shoes found with these options)')}`);
+  folders.forEach(([name, n], k) => {
+    const last = k === folders.length - 1;
+    const a = last ? '    ' : '│   ';
+    lines.push(`${last ? '└──' : '├──'} ${D(name + '/')}  ${N(shoesN(n))}`);
+    if (k === 0) {
+      const more = n > 1;
+      const b = more ? '│   ' : '    ';
+      lines.push(`${a}${more ? '├──' : '└──'} ${D(e.shoe + '/')}  ${N('a shoe, e.g. (its QR, # → -)')}`);
+      lines.push(`${a}${b}└── ${D(e.set + '/')}  ${N('a pass of the shoe')}`);
+      lines.push(`${a}${b}    ├── &lt;id&gt;.json  ${N('the data of the frame')}`);
+      e.cameras.forEach((c, i) => lines.push(`${a}${b}    ${i === e.cameras.length - 1 ? '└──' : '├──'} &lt;id&gt;_${esc(c)}.jpg`));
+      if (more) lines.push(`${a}└── ${N(`… ${n - 1} more shoe${n - 1 === 1 ? '' : 's'}`)}`);
+    }
+  });
+  const notes = [`<id>: the frame, e.g. ${e.id}`];
+  if (mode === 'defect' && p.defect && p.defect.multiple) notes.push(`a shoe with several types is in each of its type folders (${p.defect.multiple} shoes)`);
+  if ($('anyDay').checked) notes.push("a shoe's sets of other days are in its folder too");
+  $('tree').innerHTML = lines.join('\n') + (notes.length ? '\n\n' + notes.map((t) => N('* ' + t)).join('\n') : '');
 }
 
 function render(s) {

@@ -11,7 +11,9 @@ so backend.cli.qc_export takes them as they are. One shoe = one QR; a QR recorde
 Made from train/qc_sheet/qr_only_workbook.py (pandas, on the PC). Changed: the lot of the QR is one or two letters
 (2026-11-10: EQBB-BA-K1, before EQBB-AN-K1 was read as A + lot N); the types of a shoe are counted one by one (a row
 with two types is two types); other models than ON1WH-B-B (2026-11-10: ON1GR-L-B, HM3LS Lucent/Black) and the
-model code of the QR in "Model (QR)"."""
+model code of the QR in "Model (QR)"; a row with nothing in the type columns (0/1, after 'Defect') takes the types
+of the grade columns (the same 18 types in the same order, between GRADE and OK; 2026-11-14 row 7385: only
+'Spray Quality' = C there), marked in Data's 'Type from'."""
 
 import re
 import zipfile
@@ -122,6 +124,12 @@ def process_master(path):
     width = max(len(r) for r in rows)
     # the defect type columns: after 'Defect', up to the last named column (Contamination ... Spray Gap)
     types = [i for i in range(i_def + 1, len(names)) if names[i]]
+    # the grade columns (a letter or 1 per type, between GRADE and OK): the same types in the same order (2026-11:
+    # where both are filled they always agree); used when a row has nothing in the type columns
+    i_grade = names.index("GRADE") if "GRADE" in names else 6
+    grades = list(range(i_grade + 1, i_ok))
+    if len(grades) != len(types):
+        grades = []
     # the QR column: the one whose values look like a shoe QR (the sheet leaves its title empty; AT before)
     hits = {i: sum(1 for r in rows[1:] if i < len(r) and QR_RE.match(_text(r[i]))) for i in range(width)}
     i_qr = max(hits, key=hits.get) if hits else None
@@ -148,13 +156,17 @@ def process_master(path):
         res = _num(get(r, i_def)) if _text(get(r, i_def)) != "" else None
         result = {0.0: "OK", 1.0: "Defect"}.get(res, "(blank)")
         dtypes = [names[i] for i in types if _num(get(r, i)) > 0]
+        source = "type columns" if dtypes else ""
+        if not dtypes and grades:
+            dtypes = [names[t] for g, t in zip(grades, types) if _text(get(r, g)) not in ("", "0")]
+            source = "grade columns" if dtypes else ""
         diff = ", ".join(k for k, bad in (("Unit", _text(get(r, 5)) != unit), ("L/R", _text(get(r, 4)) != lr),
                                           ("Size", _text(get(r, 2)) != size)) if bad)
         grade = _text(get(r, 6))
         data.append({"Original row": n, "day": day, "Model": _text(get(r, 1)), "Size": _text(get(r, 2)),
                      "Division": _text(get(r, 3)), "L/R": _text(get(r, 4)), "Unit No.": _text(get(r, 5)),
                      "GRADE": grade or None, "Result": result, "types": dtypes, "Defect type": ", ".join(dtypes),
-                     "QR": qr, "Model (QR)": model, "Unit (QR)": unit, "L/R (QR)": lr, "Size (QR)": size, "Last": last, "Lot": lot,
+                     "Type from": source, "QR": qr, "Model (QR)": model, "Unit (QR)": unit, "L/R (QR)": lr, "Size (QR)": size, "Last": last, "Lot": lot,
                      "Serial": int(serial), "Sheet differs from QR": diff})
     if not data:
         raise ValueError(f"'{MASTER}': no rows with a shoe QR")
@@ -250,14 +262,16 @@ def write_workbook(dst, src_name, sheet, found=None):
 
     # Data
     wd = wb.create_sheet("Data")
-    dcols = ["Original row", "Date", "Model", "Size", "Division", "L/R", "Unit No.", "GRADE", "Result", "Defect type", "QR",
-             "Model (QR)", "Unit (QR)", "L/R (QR)", "Size (QR)", "Last", "Lot", "Serial", "Sheet differs from QR", "Rows with this QR"]
+    dcols = ["Original row", "Date", "Model", "Size", "Division", "L/R", "Unit No.", "GRADE", "Result", "Defect type", "Type from",
+             "QR", "Model (QR)", "Unit (QR)", "L/R (QR)", "Size (QR)", "Last", "Lot", "Serial", "Sheet differs from QR", "Rows with this QR"]
     drows = [[d["Original row"], day(d["day"])] + [d[c] for c in dcols[2:]] for d in data]
-    table(wd, dcols, drows, [9, 11, 22, 7, 8, 5, 8, 7, 8, 16, 34, 11, 9, 8, 9, 14, 6, 8, 14, 9])
+    table(wd, dcols, drows, [9, 11, 22, 7, 8, 5, 8, 7, 8, 16, 12, 34, 11, 9, 8, 9, 14, 6, 8, 14, 9])
     for i, r in enumerate(drows, 2):
         wd.cell(i, 2).number_format = "yyyy-mm-dd"
         if r[-2]:
             wd.cell(i, len(dcols) - 1).fill = WARN
+        if r[dcols.index("Type from")] == "grade columns":
+            wd.cell(i, dcols.index("Type from") + 1).fill = WARN
         if r[-1] > 1:
             wd.cell(i, len(dcols)).fill = WARN
     ND = len(drows) + 1
@@ -275,7 +289,9 @@ def write_workbook(dst, src_name, sheet, found=None):
              f"(they differ on some rows, see Data!{DL('Sheet differs from QR')}).",
              "One shoe = one QR. A QR recorded on several rows with both OK and Defect is 'Conflict' and is left out of the rates.",
              "Defect rate = Defect / (OK + Defect). 'Multiple types': a Defect shoe recorded with several types "
-             f"(Shoes!{L('Types recorded')} lists them; counted under Multiple types below)."]
+             f"(Shoes!{L('Types recorded')} lists them; counted under Multiple types below).",
+             "Defect type: from the 0/1 type columns; a row with none there takes the types written in the grade columns "
+             f"(the same types, between GRADE and OK; Data!{DL('Type from')} = grade columns)."]
     if found is not None:
         notes.append("Found on Mac: the shoe's sets saved on the Mac (same QR, same day). Not found: no set with that QR "
                      "that day (QR not read / misread / not captured).")
