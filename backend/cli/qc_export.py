@@ -23,9 +23,12 @@ Sets saved without a QR value (no-id) can not be matched and are not in it.
 result recorded). <shoe> is the QR value as it goes in file names ('#' becomes '-'), <set> the id of the shoe's pass.
 
 --defect-only: only the Defect shoes, in exports/qc_defect_<first day>_<last day>_<time>.zip, with a folder per defect type
-(the 'Defect type' column) in place of the result folder: Bonding/<shoe>/<set>/..., Over_spray/..., Multiple_types/...
-(a shoe with several types; labels.csv does not say which), Unknown_type/... (no type recorded). Conflict shoes are not in
-it (the rows disagree on OK / Defect): add them with a second run, --result Conflict.
+(the 'Defect type' column) in place of the result folder: Bonding/<shoe>/<set>/..., Over_spray/..., Unknown_type/... (no
+type recorded). A shoe the line recorded with several types ('Multiple types') is in the folder of EACH of them (its sets
+copied into each; labels.csv 'types' and 'path' list them all): the types come from the 'Types recorded' column of the
+sheet ('; ' between them) or, without it, from the rows of the shoe's QR in the workbook's 'Data' sheet (its 'Defect type'
+column). Without either it stays in Multiple_types/. Conflict shoes are not in it (the rows disagree on OK / Defect): add
+them with a second run, --result Conflict.
 
 --csv <file>: also write labels.csv (one row per shoe of the sheet, found yes / no, sets, pictures) to that file, with
 --dry-run too. train/qc_sheet/qr_only_workbook.py --found <file> puts it in the "_QR only" workbook (Found on Mac).
@@ -70,6 +73,35 @@ def type_folder(defect_type):
     """A defect type as a folder name: 'Over spray' -> Over_spray, none -> Unknown_type."""
     name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(defect_type or "").strip()).strip("._-")
     return name or "Unknown_type"
+
+
+MULTIPLE = "Multiple types"
+
+
+def recorded_types(path, sheet_name, shoes):
+    """{QR: [defect type, ...]} of the 'Multiple types' shoes: the 'Types recorded' column of the sheet ('; ' between),
+    else the 'Defect type' of the rows with that QR in the 'Data' sheet of the same workbook (in row order, each once).
+    A shoe with fewer than two types found is left out (it stays in Multiple_types)."""
+    multi = {s["QR"] for s in shoes if str(s.get("Defect type", "")).strip() == MULTIPLE}
+    out = {}
+    for s in shoes:
+        if s["QR"] in multi and str(s.get("Types recorded", "")).strip():
+            out[s["QR"]] = [t.strip() for t in str(s["Types recorded"]).split(";") if t.strip()]
+    rest = multi - set(out)
+    if rest and path.suffix.lower() != ".csv" and sheet_name != "Data":
+        try:
+            rows = read_xlsx(path, "Data")
+        except SystemExit:   # no Data sheet
+            rows = []
+        head = [str(h).strip() for h in rows[0]] if rows else []
+        if "QR" in head and "Defect type" in head:
+            iq, it = head.index("QR"), head.index("Defect type")
+            for row in rows[1:]:
+                qr = str(row[iq]).strip() if iq < len(row) else ""
+                t = str(row[it]).strip() if it < len(row) else ""
+                if qr in rest and t and t != MULTIPLE and t not in out.setdefault(qr, []):
+                    out[qr].append(t)
+    return {qr: ts for qr, ts in out.items() if len(ts) >= 2}
 
 
 def log(message):
@@ -275,27 +307,37 @@ def main():
     rows, entries, folders, total = [], [], {}, 0
     per = {f: {"asked": 0, "found": 0, "sets": 0, "pictures": 0, "bytes": 0} for f in FOLDER_ORDER}
     per_day, per_type = {}, {}
+    multi = recorded_types(sheet_path, args.sheet, shoes) if args.defect_only else {}
+    extra_pics = extra_bytes = 0   # the copies of the shoes with several types (in more than one folder)
     for s in shoes:
         f = s["folder"]
-        top = type_folder(s.get("Defect type")) if args.defect_only else f   # the first folder in the zip
+        types = multi.get(s["QR"]) or [s.get("Defect type")]
+        tops = [type_folder(t) for t in types] if args.defect_only else [f]   # the first folder(s) in the zip
+        tops = list(dict.fromkeys(tops))
         per[f]["asked"] += 1
         sets = found.get(s["QR"], [])
-        name = ""
+        paths = []
         n_frames = n_pics = size = 0
         if sets:
             base = qr_prefix(s["QR"]) or "shoe"
-            name, k = base, 1
-            while (top, name) in folders:
-                k += 1
-                name = f"{base}_{k}"
-            folders[(top, name)] = s["QR"]
-            for set_name, frames in sets:
-                for meta in frames:
-                    files = frame_files(meta, image_path, primary_role)
-                    entries.append((f"{top}/{name}/{set_name}", meta, files))
-                    n_frames += 1
-                    n_pics += len(files)
-                    size += sum(sz for _, _, sz in files)
+            for i, top in enumerate(tops):
+                name, k = base, 1
+                while (top, name) in folders:
+                    k += 1
+                    name = f"{base}_{k}"
+                folders[(top, name)] = s["QR"]
+                paths.append(f"{top}/{name}")
+                for set_name, frames in sets:
+                    for meta in frames:
+                        files = frame_files(meta, image_path, primary_role)
+                        entries.append((f"{top}/{name}/{set_name}", meta, files))
+                        if i == 0:
+                            n_frames += 1
+                            n_pics += len(files)
+                            size += sum(sz for _, _, sz in files)
+                        else:
+                            extra_pics += len(files)
+                            extra_bytes += sum(sz for _, _, sz in files)
             per[f]["found"] += 1
             per[f]["sets"] += len(sets)
             per[f]["pictures"] += n_pics
@@ -304,14 +346,17 @@ def main():
             d[0] += 1; d[1] += len(sets); d[2] += n_pics; d[3] += size
             total += size
         if args.defect_only:
-            t = per_type.setdefault(top, [0, 0, 0])
-            t[0] += 1; t[1] += bool(sets); t[2] += n_pics
+            for top in tops:
+                t = per_type.setdefault(top, [0, 0, 0])
+                t[0] += 1; t[1] += bool(sets); t[2] += n_pics
         rows.append({"qr": s["QR"], "date": f"{s['day'][:4]}-{s['day'][4:6]}-{s['day'][6:]}", "result": s["Result"] or "(blank)",
                      "folder": f, "defect_type": str(s.get("Defect type", "")).strip(),
+                     "types": "; ".join(str(t) for t in multi.get(s["QR"], [])),
                      "conflict_types": str(s.get("Conflict: types recorded", "")).strip(),
                      "unit": s.get("Unit (QR)", ""), "lr": s.get("L/R (QR)", ""), "size": s.get("Size (QR)", ""),
                      "last": s.get("Last", ""), "found": "yes" if sets else "no", "sets": len(sets),
-                     "frames": n_frames, "pictures": n_pics, "path": f"{top}/{name}" if name else ""})
+                     "frames": n_frames, "pictures": n_pics, "path": "; ".join(paths)})
+    total_zip = total + extra_bytes   # the zip: also the copies
     asked = len(shoes)
     n_found = sum(1 for r in rows if r["found"] == "yes")
     n_sets = sum(r["sets"] for r in rows)
@@ -335,6 +380,11 @@ def main():
         print(f"  {'defect type (folder)':22} {'shoes':>6} {'found':>6} {'pictures':>9}")
         for t, (n_sh, n_fd, n_p) in sorted(per_type.items(), key=lambda x: (-x[1][0], x[0])):
             print(f"  {t:22} {n_sh:6d} {n_fd:6d} {n_p:9d}")
+        n_multi = sum(1 for s in shoes if str(s.get("Defect type", "")).strip() == MULTIPLE)
+        if n_multi:
+            print(f"  '{MULTIPLE}': {len(multi)} of {n_multi} shoes in the folder of each recorded type "
+                  f"(counted in each above; {extra_pics} pictures, {fmt_bytes(extra_bytes)} more in the zip)"
+                  + (f"; {n_multi - len(multi)} without the types stay in Multiple_types" if n_multi > len(multi) else ""))
     for day, (n_sh, n_st, n_p, n_b) in sorted(per_day.items()):
         print(f"  {day[:4]}-{day[4:6]}-{day[6:]}  {n_sh:5d} shoes  {n_st:5d} sets  {n_p:6d} pictures  {fmt_bytes(n_b):>10}")
     not_found = [r["qr"] for r in rows if r["found"] == "no"]
@@ -344,7 +394,7 @@ def main():
     while not probe.exists():
         probe = probe.parent
     free = shutil.disk_usage(probe).free
-    print(f"  zip       about {fmt_bytes(total)} -> {out}  (free at {probe}: {fmt_bytes(free)})")
+    print(f"  zip       about {fmt_bytes(total_zip)} -> {out}  (free at {probe}: {fmt_bytes(free)})")
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=list(rows[0]))
     w.writeheader()
@@ -358,13 +408,14 @@ def main():
         return
     if not entries:
         raise SystemExit("no sets found for these shoes: nothing to write")
-    if free < total * 1.02 + 200 * 1024 * 1024:
-        raise SystemExit(f"not enough free disk space at {probe} for the zip ({fmt_bytes(total)} needed)")
+    if free < total_zip * 1.02 + 200 * 1024 * 1024:
+        raise SystemExit(f"not enough free disk space at {probe} for the zip ({fmt_bytes(total_zip)} needed)")
 
     manifest = {"created": datetime.now().isoformat(timespec="seconds"), "sheet": sheet_path.name, "sheet_name": args.sheet,
                 "options": {"result": args.result or "all", "defect_only": args.defect_only, "any_day": args.any_day,
                             "limit": args.limit},
                 "per_defect_type": {t: {"shoes": v[0], "found": v[1], "pictures": v[2]} for t, v in per_type.items()},
+                "multiple_types": multi, "copies": {"pictures": extra_pics, "bytes": extra_bytes},
                 "captures": str(C.CAPTURES_DIR), "days": [first, last], "shoes": asked, "found": n_found,
                 "sets": n_sets, "frames": n_frames, "pictures": n_pics, "bytes": total,
                 "per_result": per, "not_found": not_found, "sheet_problems": bad}
@@ -374,7 +425,9 @@ def main():
                            found=n_found, asked=asked, sets=n_sets, frames=n_frames, pictures=n_pics)
     if args.defect_only:
         readme += ("\nDefect shoes only (--defect-only): the first folder is the defect type in place of the result "
-                   "(Bonding/<shoe>/<set>/...).\nMultiple_types: the line recorded several types on the shoe; "
+                   "(Bonding/<shoe>/<set>/...).\nA shoe the line recorded with several types is in the folder of each "
+                   "of them (the same sets copied; labels.csv 'types' and 'path' list them), so the shoes of the type "
+                   "folders add up to more than the shoes.\nMultiple_types: several types, but which ones is not known; "
                    "Unknown_type: no type recorded. Conflict shoes are not in it.\n")
     out.parent.mkdir(parents=True, exist_ok=True)
     part = out.with_name(out.name + ".part")

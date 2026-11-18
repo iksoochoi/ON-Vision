@@ -68,7 +68,7 @@ QR 위치는 찾았는데 값을 못 읽는 경우(번짐, 반사, 기울어진 
   - `labels.csv`: 시트의 모든 신발(못 찾은 것도) 한 줄씩: 판정, 불량 유형, 라인, L/R, 사이즈, 라스트, 찾았는지, 세트·사진 수, zip 안 경로.
   - `manifest.json`(옵션, 판정별 수, 못 찾은 QR 목록), `README.txt`.
 - **`--dry-run`**: 아무것도 쓰지 않고 판정별 신발 수·찾은 수·세트·사진·용량, 날짜별 수, 못 찾은 QR 예시, 남은 디스크를 보여 줍니다. 먼저 해 보세요.
-- **불량만**: `--defect-only` → `exports/qc_defect_<첫날>_<마지막날>_<시각>.zip`. 판정 폴더 대신 **불량 유형 폴더**(Shoes 시트의 Defect type): `Bonding/<신발>/<세트>/...`, `Over_spray/...`(공백 → `_`), `Multiple_types/`(유형 여러 개, 어떤 유형인지는 시트에 없음), `Unknown_type/`(유형 기록 없음). dry-run에 유형별 신발·찾은 수·사진 수가 나옵니다. Conflict 신발은 들어가지 않습니다(필요하면 따로 `--result Conflict`). `--result`와 같이 쓸 수 없습니다.
+- **불량만**: `--defect-only` → `exports/qc_defect_<첫날>_<마지막날>_<시각>.zip`. 판정 폴더 대신 **불량 유형 폴더**(Shoes 시트의 Defect type): `Bonding/<신발>/<세트>/...`, `Over_spray/...`(공백 → `_`), `Unknown_type/`(유형 기록 없음). 라인이 유형을 여러 개 기록한 신발(Shoes 시트의 "Multiple types")은 **각 유형 폴더에 모두** 들어갑니다(같은 세트를 복사, 예: `Spray_Quality/`와 `Bonding_gap/`). 유형은 같은 엑셀의 Data 시트(그 QR의 행들의 Defect type)에서 읽고, labels.csv의 `types`·`path`에 모두 적힙니다. 그래서 유형별 신발 수의 합은 전체 신발 수보다 큽니다. 유형을 찾지 못하면 예전처럼 `Multiple_types/`. dry-run에 유형별 신발·찾은 수·사진 수가 나옵니다. Conflict 신발은 들어가지 않습니다(필요하면 따로 `--result Conflict`). `--result`와 같이 쓸 수 없습니다.
   ```
   .venv/bin/python -m backend.cli.qc_export --xlsx "docs/CTC_LS Shoes QC_raw data (11.05~09)_QR only.xlsx" --defect-only --dry-run
   ```
