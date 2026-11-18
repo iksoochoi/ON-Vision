@@ -3,8 +3,8 @@ saved sets (a preview: per result / defect type the shoes found, sets, pictures,
 is written next to it (needs openpyxl), then on request the zip of backend/cli/qc_export.py is made, with progress
 and a cancel.
 
-    exports/qc_sheets/<yyyymmdd_hhmmss>_<name>.xlsx              the uploaded workbook
-    exports/qc_sheets/<yyyymmdd_hhmmss>_<name>_QR only.xlsx      the summary workbook (Summary / Shoes / Data)
+    exports/qc_sheets/<name>.xlsx              the uploaded workbook (the same file name again: replaced)
+    exports/qc_sheets/<name>_QR only.xlsx      the summary workbook (Summary / Shoes / Data), replaced with it
     exports/qc_[defect_]<first day>_<last day>_<time>.zip        the zip (as the command line makes it)
 
 The captures folder is only read."""
@@ -25,8 +25,10 @@ from .paths import ID_RE, image_path, primary_role, qr_prefix, time_key
 SHEETS_DIR = C.EXPORTS_DIR / "qc_sheets"
 MAX_UPLOAD = 40 * 1024 * 1024
 ZIP_RE = re.compile(r"^qc_(defect_)?\d{8}_\d{8}_\d{8}_\d{6}\.zip$")
-FILE_RE = re.compile(r"^\d{8}_\d{6}_[^/\\]{1,150}\.xlsx$")
-KEEP_FILES = 20            # the newest uploads / workbooks kept in qc_sheets (older ones are deleted)
+FILE_RE = re.compile(r"^[^./\\][^/\\]{0,150}\.xlsx$")
+STAMP_RE = re.compile(r"^\d{8}_\d{6}_")   # the uploads of before 2026-11-18 had the time in front of the name
+QR_ONLY = "_QR only"
+KEEP_FILES = 20            # the newest uploads (with their workbooks) kept in qc_sheets (older ones are deleted)
 NOT_FOUND_SHOWN = 300
 
 _lock = threading.Lock()
@@ -46,16 +48,39 @@ def _set(**kw):
         _job.update(kw)
 
 
-def _prune():
-    files = sorted(SHEETS_DIR.glob("*.xlsx"), key=lambda p: p.name, reverse=True)
-    stamps = []
+def _base(p):
+    """The upload a file of qc_sheets belongs to: its name without the time in front and without _QR only."""
+    stem = STAMP_RE.sub("", p.stem)
+    return stem[:-len(QR_ONLY)] if stem.endswith(QR_ONLY) else stem
+
+
+def _prune(base=None):
+    """The files of an older upload of the same name (base: with the time in front, as before) and the uploads past
+    the newest KEEP_FILES are deleted."""
+    files = [p for p in SHEETS_DIR.glob("*.xlsx") if p.is_file()]
+    if base is not None:
+        for p in files:
+            if STAMP_RE.match(p.name) and _base(p) == base:
+                p.unlink(missing_ok=True)
+        files = [p for p in files if p.exists()]
+    newest = {}
     for p in files:
-        s = p.name[:15]
-        if s not in stamps:
-            stamps.append(s)
+        b = _base(p)
+        newest[b] = max(newest.get(b, 0), p.stat().st_mtime)
+    keep = set(sorted(newest, key=newest.get, reverse=True)[:KEEP_FILES])
     for p in files:
-        if p.name[:15] not in stamps[:KEEP_FILES]:
+        if _base(p) not in keep:
             p.unlink(missing_ok=True)
+
+
+def _replace(path, write):
+    """write(tmp) then the file replaced in one step (a download of the old one is not cut)."""
+    tmp = path.with_name(f".{path.name}.part")
+    try:
+        write(tmp)
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def status():
@@ -98,17 +123,21 @@ def upload(name, raw):
         return "not an .xlsx file (an .xlsx is a zip; save it from Excel as .xlsx)"
     if busy():
         return "busy: wait until the work in progress is done (or cancel it)"
+    base = _safe_name(name)
+    if base.endswith(QR_ONLY):
+        return "this is a summary workbook (_QR only) made here: upload the site QC workbook"
     SHEETS_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = SHEETS_DIR / f"{stamp}_{_safe_name(name)}.xlsx"
-    path.write_bytes(raw)
+    # the same file name as an upload before: replaced (its old summary workbook goes, a new one is written)
+    path = SHEETS_DIR / f"{base}.xlsx"
+    (SHEETS_DIR / f"{base}{QR_ONLY}.xlsx").unlink(missing_ok=True)
+    _replace(path, lambda p: p.write_bytes(raw))
     _cancel.clear()
     with _lock:
         _job.clear()
         _job.update(stage="reading", step="reading the workbook", file=path.name, name=str(name), started=time.time())
         _data.clear()
     threading.Thread(target=_read, args=(path, str(name)), daemon=True).start()
-    _prune()
+    _prune(base)
     return None
 
 
@@ -177,9 +206,9 @@ def _read(path, name):
             "ok_days": ok_days, "ok_shoe_bytes": round(per_pic * (sum(ok_pics) / len(ok_pics))) if ok_pics else 0,
         }
         _set(step="writing the summary workbook", preview=preview)
-        wb = path.with_name(f"{path.stem}_QR only.xlsx")
+        wb = path.with_name(f"{path.stem}{QR_ONLY}.xlsx")
         try:
-            Q.write_workbook(wb, name, sheet, found_map)
+            _replace(wb, lambda p: Q.write_workbook(p, name, sheet, found_map))
             _set(workbook=wb.name, workbook_error=None)
         except RuntimeError as e:   # no openpyxl
             _set(workbook=None, workbook_error=str(e))
