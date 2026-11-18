@@ -55,13 +55,23 @@ QR 위치는 찾았는데 값을 못 읽는 경우(번짐, 반사, 기울어진 
 - **설치**: zxing-cpp는 `requirements.txt`에 있습니다. Mac에서 한 번 `.venv/bin/python -m pip install zxing-cpp==3.1.1`(또는 `pip install -r requirements.txt`)을 실행하세요.
 - **한계**: 크기가 너무 작거나(대략 70px 미만) 번짐이 칸 몇 개 폭을 넘으면(가로 번짐 약 12px 이상) 읽지 못합니다. 이 경우 해결책은 카메라 쪽(초점, 노출, 해상도)입니다.
 
-## 현장 QC 시트의 신발만 골라 zip으로 (`backend.cli.qc_export`)
+## 현장 QC 시트의 신발만 골라 zip으로 (QC Export 화면, `backend.cli.qc_export`)
 현장에서 기록한 정상/불량 엑셀의 QR 값으로, Mac에 저장된 세트를 골라 **판정별 폴더**로 묶습니다. captures 폴더는 읽기만 합니다.
+
+**QC Export 화면(`/qcexport`, 메뉴 맨 아래)**: 매주 오는 현장 QC 엑셀(시트 `Master data_cell 1`)을 **그대로** 올리면
+1. Mac에서 신발 1켤레 = 1행으로 정리(QR을 정답으로: 라인·L/R·사이즈·모델은 QR에서)하고, 그날 찍은 세트를 찾아 판정별·불량 유형별 신발 수, 찾은 수, 세트·사진·용량, 못 찾은 신발 목록을 보여 줍니다.
+2. 요약 엑셀(`_QR only`: Summary / Shoes / Data, Found on Mac 포함)을 만들어 내려받게 합니다. **openpyxl 필요**: Mac의 앱 폴더에서 `.venv/bin/python -m pip install openpyxl` 후 앱 재시작(없으면 화면에 안내가 나오고 나머지는 그대로 동작).
+3. "By result"(판정 선택) 또는 "Defect shoes by type"으로 zip을 만듭니다(진행률, 취소). 끝나면 링크로 내려받고, 최근 zip 목록에도 나옵니다.
+- 올린 엑셀과 요약 엑셀은 `exports/qc_sheets/`(최근 20개만 둠), zip은 `exports/`에 저장됩니다. 한 번에 한 작업만 합니다.
+- 자동 촬영이 켜져 있으면 경고가 나옵니다(zip은 디스크를 많이 읽음: 라인이 쉴 때 권장).
+
+명령으로도 같습니다(원본 QC 엑셀을 바로 넣어도 됨):
 ```
-.venv/bin/python -m backend.cli.qc_export --xlsx "docs/CTC_LS Shoes QC_raw data (11.05~09)_QR only.xlsx" --dry-run
+.venv/bin/python -m backend.cli.qc_export --xlsx "captures/CTC_LS Shoes QC_raw data (11.10~11.14).xlsx" --dry-run
 .venv/bin/python -m backend.cli.qc_export --xlsx "docs/CTC_LS Shoes QC_raw data (11.05~09)_QR only.xlsx"
 ```
-- 읽는 시트: `_QR only` 통합 문서의 **Shoes** 시트(신발 1켤레 = 1행: Date, QR, Result, Defect type ...). 같은 열을 가진 .csv도 됩니다. 엑셀은 표준 라이브러리로 읽으므로 Mac에 openpyxl이 없어도 됩니다.
+- 읽는 시트: 현장 QC 엑셀이면 `Master data_cell 1`을 정리해서(backend/storage/qc_sheet.py), `_QR only` 통합 문서면 **Shoes** 시트(신발 1켤레 = 1행: Date, QR, Result, Defect type ...). 같은 열을 가진 .csv도 됩니다. 엑셀은 표준 라이브러리로 읽으므로 zip에는 openpyxl이 필요 없습니다.
+- QR 형식: `ON1<색>-<?>-<?>#<사이즈>[T]<L/R>EQBB<Lot 1~2자>K1<라인><번호><L/R>` (예: ON1WH-B-B#10TREQBBANK1W1B19537R, 11/10부터 ON1GR-L-B 모델과 Lot `BA`·`BK`).
 - 찾는 방법: 엑셀 QR 값(`#` 포함)과 세트에 저장된 QR 값(`shoe_id`)이 **정확히 같은** 세트. 기본은 **엑셀 Date와 같은 날** 찍은 세트만(`--any-day`면 모든 날). QR을 못 읽은 세트(no-id)는 맞출 수 없어 들어가지 않습니다.
 - 결과: `exports/qc_<첫날>_<마지막날>_<시각>.zip` (원본 크기 사진, 압축 없이 저장)
   - `OK/`, `Defect/`, `Conflict/`(같은 QR이 여러 행에 정상·불량으로 섞여 기록), `NoResult/`(판정 빈칸) 아래 `<신발>/<세트>/<id>_<camera>.jpg`, `<id>.json`. 폴더 이름의 신발은 파일 이름용 QR(`#` → `-`).
@@ -76,6 +86,6 @@ QR 위치는 찾았는데 값을 못 읽는 경우(번짐, 반사, 기울어진 
   ```
   .venv/bin/python -m backend.cli.qc_export --xlsx "docs/CTC_LS Shoes QC_raw data (11.05~09)_QR only.xlsx" --dry-run --csv exports/found.csv
   ```
-  이 파일을 학습 PC로 가져와 `train/qc_sheet/qr_only_workbook.py <원본 QC.xlsx> <_QR only.xlsx> --found found.csv`로 `_QR only` 엑셀을 다시 만들면, Shoes 시트에 `Found on Mac`/`Sets on Mac` 열이, Summary의 모든 표에 `Found on Mac`/`Not found` 열이 생깁니다(학습 PC 전용, pandas·openpyxl 필요, git에 없음).
+  (예전 방식: 이 파일을 학습 PC의 `train/qc_sheet/qr_only_workbook.py --found`에 넣어 요약 엑셀을 만들었음. 이제 QC Export 화면이 Found on Mac까지 넣은 요약 엑셀을 바로 만듭니다.)
 - 옵션: `--result Defect,Conflict`(이 판정만, 폴더는 판정별), `--any-day`, `--sheet`(다른 시트), `--captures <경로>`, `--out <zip 경로>`, `--limit N`(찾은 신발 앞 N개만, 시험용).
 - zip은 `<이름>.zip.part`로 쓰다가 끝나면 이름을 바꿉니다(중간에 멈추면 .part는 지움). 사진 용량 + 200 MB보다 디스크가 적으면 시작하지 않습니다.

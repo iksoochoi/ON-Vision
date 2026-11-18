@@ -20,6 +20,7 @@ from .export_routes import ExportRoutes
 from .imagelab_routes import ImageLabRoutes
 from .light_routes import LightRoutes
 from .predict_routes import PredictRoutes
+from .qc_routes import QcRoutes
 from .responses import STATIC_FILES, ResponsesMixin
 from .sample_routes import SampleRoutes
 from .state_routes import StateRoutes
@@ -27,7 +28,7 @@ from .stream_routes import StreamRoutes
 
 
 class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, PredictRoutes, ImageLabRoutes, LightRoutes,
-                     StreamRoutes, BaseHTTPRequestHandler):
+                     QcRoutes, StreamRoutes, BaseHTTPRequestHandler):
     def _route(self):
         parts = urlsplit(self.path)
         return parts.path, parse_qs(parts.query)
@@ -102,6 +103,10 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, Pr
             self._get_light()
         elif path == "/api/predict" or path.startswith("/api/predict/"):
             self._get_predict(path[len("/api/predict/"):], query)
+        elif path == "/api/qc/status":
+            self._qc_status()
+        elif path == "/api/qc/file":
+            self._qc_file(query)
         elif path.startswith("/exports/"):
             self._download_export(path[len("/exports/"):])
         elif path == "/api/samples/download":
@@ -191,6 +196,14 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, Pr
             self._set_light(data)
         elif path == "/api/light/save":
             self._save_light()
+        elif path == "/api/qc/upload":
+            self._qc_upload(data)
+        elif path == "/api/qc/export":
+            self._qc_export(data)
+        elif path == "/api/qc/cancel":
+            self._qc_cancel()
+        elif path == "/api/qc/reset":
+            self._qc_reset()
         elif path == "/api/samples/delete":
             ids = data.get("ids")
             if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and ID_RE.match(i) for i in ids):

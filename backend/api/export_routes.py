@@ -3,6 +3,7 @@
 from ..core.config import EXPORTS_DIR
 from ..storage.export import ZIP_RE, export_dataset
 from ..storage.predict_export import ZIP_RE as PREDICT_ZIP_RE
+from ..storage.qc_jobs import ZIP_RE as QC_ZIP_RE
 
 
 class ExportRoutes:
@@ -22,7 +23,7 @@ class ExportRoutes:
         self._send_json(result)
 
     def _download_export(self, name):
-        if not (ZIP_RE.match(name) or PREDICT_ZIP_RE.match(name)):
+        if not (ZIP_RE.match(name) or PREDICT_ZIP_RE.match(name) or QC_ZIP_RE.match(name)):
             self.send_error(404)
             return
         path = EXPORTS_DIR / name

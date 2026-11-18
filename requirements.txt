@@ -2,4 +2,5 @@
 depthai==3.10.0
 numpy==2.5.3
 opencv-python==5.0.0.93
+openpyxl==3.1.5   # the summary workbook (_QR only) of the QC Export page; without it the page works, only no workbook
 zxing-cpp==3.1.1   # second QR reader (ON_QR_ZXING); without it the reading still works, only with OpenCV
