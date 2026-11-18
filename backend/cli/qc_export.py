@@ -82,6 +82,7 @@ README_DEFECT = ("\nDefect shoes only (--defect-only): the first folder is the d
                  "folders add up to more than the shoes.\nMultiple_types: several types, but which ones is not known; "
                  "Unknown_type: no type recorded. Conflict shoes are not in it.\n")
 README_OK = ("\nOK/ (--ok-per-day): {n} OK shoes of each QC day (of the ones found on the Mac), spread over the day, "
+             "every model of the day in it (at least 1 shoe of each, the rest by the model's share of the day), "
              "to compare with the defects.\n")
 README_FLAT = ("\nWithout the pass folder (--no-set-folder): <Result>/<shoe>/<id>_<camera>.jpg, the frames of a shoe straight "
                "in its folder (<id> has the time).\n")
@@ -303,21 +304,43 @@ def plan(shoes, found, defect_only, multi, image_path, primary_role, qr_prefix, 
             "not_found": [r["qr"] for r in rows if r["found"] == "no"], "labels_csv": buf.getvalue()}
 
 
+def ok_quota(counts, per_day):
+    """How many OK shoes of each model a day gets ({model: found OK shoes of the day} -> {model: n}). Every model of
+    the day gets at least 1 (so a day with more models than per_day gets more than per_day); the rest goes one by one
+    to the model with the most shoes per pick so far (by its share), never more than the model has.
+    The page's okQuota (qcexport.js) does the same, for the size estimate."""
+    if per_day <= 0:
+        return {}
+    ms = sorted(m for m, c in counts.items() if c > 0)
+    q = {m: 1 for m in ms}
+    left = min(per_day, sum(counts[m] for m in ms)) - len(ms)
+    while left > 0:
+        best = None
+        for m in ms:
+            if q[m] < counts[m] and (best is None or counts[m] / q[m] > counts[best] / q[best]):
+                best = m
+        q[best] += 1
+        left -= 1
+    return q
+
+
 def pick_ok(shoes, found, per_day, time_key):
-    """per_day OK shoes of each QC day among the ones with sets, spread over the day: the day's found OK shoes in the
-    time order of their first set, every k-th (first and last included). Always the same for the same sheet."""
+    """per_day OK shoes of each QC day among the ones with sets, every model of that day in it (ok_quota), spread over
+    the day: per model the day's found OK shoes in the time order of their first set, every k-th (first and last
+    included). Always the same for the same sheet."""
     by_day = {}
     for s in shoes:
         if s["folder"] == "OK" and found.get(s["QR"]):
-            by_day.setdefault(s["day"], []).append(s)
+            by_day.setdefault(s["day"], {}).setdefault(s.get("Model (QR)", ""), []).append(s)
+    first = lambda s: time_key(found[s["QR"]][0][1][0]["id"])
     out = []
     for day in sorted(by_day):
-        g = sorted(by_day[day], key=lambda s: time_key(found[s["QR"]][0][1][0]["id"]))
-        n = min(per_day, len(g))
-        if n <= 0:
-            continue
-        idx = [len(g) // 2] if n == 1 else sorted({round(i * (len(g) - 1) / (n - 1)) for i in range(n)})
-        out += [g[i] for i in idx]
+        day_pick = []
+        for m, n in ok_quota({m: len(g) for m, g in by_day[day].items()}, per_day).items():
+            g = sorted(by_day[day][m], key=first)
+            idx = [len(g) // 2] if n == 1 else sorted({round(i * (len(g) - 1) / (n - 1)) for i in range(n)})
+            day_pick += [g[i] for i in idx]
+        out += sorted(day_pick, key=first)
     return out
 
 

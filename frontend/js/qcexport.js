@@ -151,7 +151,21 @@ function drawSize() {
 const shoesN = (n) => `${n} shoe${n === 1 ? '' : 's'}`;
 const okPerDay = () => Math.max(0, Math.min(100, Math.floor(+$('okPerDay').value || 0)));
 // the OK shoes of the defect zip's OK/ folder: okPerDay of each QC day, at most the ones found that day
-const okSample = () => Object.values((st.preview && st.preview.ok_days) || {}).reduce((a, n) => a + Math.min(n, okPerDay()), 0);
+// the OK shoes of a day per model, as ok_quota of qc_export.py: every model at least 1, the rest by its share
+function okQuota(counts, perDay) {
+  if (perDay <= 0) return {};
+  const ms = Object.keys(counts).filter(m => counts[m] > 0).sort();
+  const q = Object.fromEntries(ms.map(m => [m, 1]));
+  let left = Math.min(perDay, ms.reduce((a, m) => a + counts[m], 0)) - ms.length;
+  while (left-- > 0) {
+    let best = null;
+    for (const m of ms) if (q[m] < counts[m] && (best === null || counts[m] / q[m] > counts[best] / q[best])) best = m;
+    q[best]++;
+  }
+  return q;
+}
+const okSample = () => Object.values((st.preview && st.preview.ok_days) || {})
+  .reduce((a, d) => a + Object.values(okQuota(d, okPerDay())).reduce((x, n) => x + n, 0), 0);
 
 // the folders of the zip with these options (as backend.cli.qc_export writes it); the first folder opened with one
 // real set of this sheet as the example
@@ -194,7 +208,7 @@ function drawTree(mode) {
   });
   const notes = [`<id>: the frame, e.g. ${e.id}`];
   if (mode === 'defect' && p.defect && p.defect.multiple) notes.push(`a shoe with several types is in each of its type folders (${p.defect.multiple} shoes)`);
-  if (mode === 'defect' && okSample()) notes.push(`OK/: ${okPerDay()} OK shoes of each QC day (of the ones found), spread over the day`);
+  if (mode === 'defect' && okSample()) notes.push(`OK/: ${okPerDay()} OK shoes of each QC day (of the ones found), spread over the day, every model of the day in it (at least 1 each, the rest by its share)`);
   if ($('anyDay').checked) notes.push("a shoe's sets of other days are in its folder too");
   if ($('noSet').checked) notes.push("several passes of a shoe: all their frames in the shoe's folder (<id> differs by the time)");
   $('tree').innerHTML = lines.join('\n') + (notes.length ? '\n\n' + notes.map((t) => N('* ' + t)).join('\n') : '');

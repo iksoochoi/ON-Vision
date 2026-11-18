@@ -62,7 +62,7 @@ QR 위치는 찾았는데 값을 못 읽는 경우(번짐, 반사, 기울어진 
 1. Mac에서 신발 1켤레 = 1행으로 정리(QR을 정답으로: 라인·L/R·사이즈·모델은 QR에서)하고, 그날 찍은 세트를 찾아 판정별·불량 유형별 신발 수, 찾은 수, 세트·사진·용량, 못 찾은 신발 목록을 보여 줍니다.
 2. 요약 엑셀(`_QR only`: Summary / Shoes / Data, Found on Mac 포함)을 만들어 내려받게 합니다. **openpyxl 필요**: Mac의 앱 폴더에서 `.venv/bin/python -m pip install openpyxl` 후 앱 재시작(없으면 화면에 안내가 나오고 나머지는 그대로 동작).
 3. "By result"(판정 선택) 또는 "Defect shoes by type"으로 zip을 만듭니다(진행률, 취소). 끝나면 링크로 내려받고, 최근 zip 목록에도 나옵니다. 오른쪽에 옵션대로의 폴더 구조가 보입니다.
-   - "Defect shoes by type"의 **+ OK/ with N OK shoes of each day**(기본 5, 0 = 없음): 비교용으로 `OK/`에 QC 날짜마다 OK 신발 N켤레(1켤레 = 사진 5장). 그날 찾은 OK 신발을 첫 세트 시각 순으로 놓고 처음·끝을 포함해 고르게 고릅니다(같은 엑셀이면 같은 신발). 명령은 `--defect-only --ok-per-day N`.
+   - "Defect shoes by type"의 **+ OK/ with N OK shoes of each day**(기본 5, 0 = 없음): 비교용으로 `OK/`에 QC 날짜마다 OK 신발 N켤레(1켤레 = 사진 5장). 그날 찾은 OK 신발을 첫 세트 시각 순으로 놓고 처음·끝을 포함해 고르게 고릅니다(같은 엑셀이면 같은 신발). 그날 생산한 모델은 모두 들어갑니다: 모델마다 최소 1켤레, 나머지는 그날 모델별 OK 수 비율대로(그날 모델 수가 N보다 많으면 N을 넘음). 그날 생산하지 않은 모델은 넣지 않습니다. 명령은 `--defect-only --ok-per-day N`.
    - **No pass folder**: 세트(시간) 폴더 없이 `<폴더>/<신발>/<id>_<camera>.jpg`(명령은 `--no-set-folder`).
 - 올린 엑셀과 요약 엑셀은 `exports/qc_sheets/`(최근 20개만 둠), zip은 `exports/`에 저장됩니다. 한 번에 한 작업만 합니다.
 - 자동 촬영이 켜져 있으면 경고가 나옵니다(zip은 디스크를 많이 읽음: 라인이 쉴 때 권장).

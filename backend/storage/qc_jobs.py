@@ -145,7 +145,8 @@ def _read(path, name):
         ok_days, ok_pics = {}, []
         for r in P_all["rows"]:
             if r["folder"] == "OK" and r["found"] == "yes":
-                ok_days[r["date"]] = ok_days.get(r["date"], 0) + 1
+                d = ok_days.setdefault(r["date"], {})   # {date: {model: found OK shoes}}
+                d[r["model"]] = d.get(r["model"], 0) + 1
                 ok_pics.append(r["pictures"])
         per_pic = P_all["total"] / P_all["pictures"] if P_all["pictures"] else 0
         c = Q.counts(shoes)
