@@ -354,7 +354,25 @@ JPEG_QUALITY = _env("ON_JPEG_QUALITY", 95, int)
 THUMB_WIDTH = _env("ON_THUMB_WIDTH", 480, int)
 
 # Defect detection (backend/predict, a separate process: the camera app only shows its results). Read by the worker:
-PREDICT_MODEL = _path("ON_PREDICT_MODEL", "backend/models/defect_detection/best.pt")
+# The defect model, ONE at a time: a folder name under backend/models/defect_detection (overspray | poc: its best.pt is used),
+# or a path to a .pt file (or to a folder with a best.pt). Old results in captures/.predict stay as they are when it changes.
+DEFECT_MODELS_DIR = PROJECT_DIR / "backend" / "models" / "defect_detection"
+
+
+def _model_path(value):
+    value = value.strip()
+    if "/" not in value and "\\" not in value and not value.endswith(".pt"):
+        p = DEFECT_MODELS_DIR / value
+    else:
+        p = Path(value).expanduser()
+        p = p if p.is_absolute() else PROJECT_DIR / p
+    return p / "best.pt" if p.is_dir() or p.suffix != ".pt" else p
+
+
+PREDICT_MODEL = _model_path(_env("ON_PREDICT_MODEL", "overspray"))
+# How results and logs name the model ("overspray/best.pt"): every model file is called best.pt
+PREDICT_MODEL_NAME = (f"{PREDICT_MODEL.parent.name}/{PREDICT_MODEL.name}" if PREDICT_MODEL.parent.parent == DEFECT_MODELS_DIR
+                      else PREDICT_MODEL.name)
 PREDICT_DEVICE = _env("ON_PREDICT_DEVICE", "auto").strip().lower()   # auto (Apple GPU = mps, else cuda, else cpu) | cpu | mps | 0
 PREDICT_IMGSZ = max(32, _env("ON_PREDICT_IMGSZ", 1280, int))         # the model was trained at 1280
 PREDICT_CONF = max(0.01, min(0.99, _env("ON_PREDICT_CONF", 0.25, float)))   # minimum score of a detection

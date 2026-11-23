@@ -1,5 +1,5 @@
-"""Defect detection with the YOLO model of backend/models/defect_detection (a proof-of-concept model, see the README of
-this folder). Shared by bench.py (timing) and run_folder.py (predict a folder of pictures).
+"""Defect detection with a YOLO model of backend/models/defect_detection/<name>/best.pt (overspray = the Overspray model,
+poc = the first proof-of-concept model). Shared by bench.py (timing) and run_folder.py (predict a folder of pictures).
 
 Needs the packages of backend/predict/requirements.txt (torch + ultralytics), which the camera app itself does not
 need: nothing in the camera app imports this folder, so it never slows the collection down."""
@@ -10,7 +10,7 @@ from pathlib import Path
 import cv2
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_MODEL = ROOT / "backend" / "models" / "defect_detection" / "best.pt"
+DEFAULT_MODEL = ROOT / "backend" / "models" / "defect_detection" / "overspray" / "best.pt"
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".bmp")
 IMGSZ = 1280      # the size the model was trained at
 CONF = 0.25

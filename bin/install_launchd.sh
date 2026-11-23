@@ -296,9 +296,11 @@ case "${1:-}" in
             echo "The defect detection packages are not installed: .venv/bin/python -m pip install -r backend/predict/requirements.txt" >&2
             exit 1
         fi
-        model=$(env_value ON_PREDICT_MODEL backend/models/defect_detection/best.pt)
+        model=$(env_value ON_PREDICT_MODEL overspray)   # a folder name under backend/models/defect_detection, or a path
+        case "$model" in */*|*.pt) ;; *) model="backend/models/defect_detection/$model" ;; esac
         case "$model" in "~"*) model="$HOME${model#"~"}" ;; esac
         case "$model" in /*) ;; *) model="$ROOT/$model" ;; esac
+        case "$model" in *.pt) ;; *) model="$model/best.pt" ;; esac
         [ -f "$model" ] || { echo "Model file not found: $model (ON_PREDICT_MODEL)" >&2; exit 1; }
         write_plist predict "$PREDICT_LABEL" "$PREDICT_PLIST" "$PREDICT_LOG_FILE"
         "$LAUNCHCTL" bootout "$DOMAIN/$PREDICT_LABEL" 2>/dev/null || true

@@ -1,6 +1,6 @@
 # backend/predict: 불량 탐지 (테스트 단계)
 
-`backend/models/defect_detection/best.pt`(YOLO11l, PoC 분사/인쇄 불량 데이터로 학습, mAP50 0.31)로 사진을 검사합니다. **카메라 앱은 이 폴더를 읽지 않으므로** 수집 성능에 영향이 없습니다.
+`backend/models/defect_detection/<이름>/best.pt`로 사진을 검사합니다. 모델은 `.env`의 `ON_PREDICT_MODEL`로 고릅니다: `overspray`(기본, YOLO11s, Overspray 1클래스, 이 현장 사진으로 학습) 또는 `poc`(YOLO11l, PoC 분사/인쇄 불량 12클래스, mAP50 0.31). `run_folder.py`는 `--model`을 주지 않으면 `overspray`를 씁니다. **카메라 앱은 이 폴더를 읽지 않으므로** 수집 성능에 영향이 없습니다.
 
 - `worker.py`: 저장된 세트를 자동으로 검사하는 **별도 프로세스**(launchd 서비스). 결과는 `captures/.predict/`에 저장되고 웹의 Predict 메뉴에 나옵니다. 설치와 설정은 [docs/predict.md](../../docs/predict.md).
 - `run_folder.py`, `bench.py`: 카메라 없이 PC/Mac에서 시험하는 도구(아래).

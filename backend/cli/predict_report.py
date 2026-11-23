@@ -210,7 +210,7 @@ def main():
 
     seg_settings = {"model": f"{C.PREDICT_SEG_MODEL.parent.name}/{C.PREDICT_SEG_MODEL.name}", "model_size": C.PREDICT_SEG_MODEL.stat().st_size,
                     "imgsz": C.PREDICT_SEG_IMGSZ, "conf": C.PREDICT_SEG_CONF, "grow": C.PREDICT_SEG_GROW} if args.seg else False
-    settings = {"model": C.PREDICT_MODEL.name, "model_size": C.PREDICT_MODEL.stat().st_size, "conf": conf, "imgsz": imgsz,
+    settings = {"model": C.PREDICT_MODEL_NAME, "model_size": C.PREDICT_MODEL.stat().st_size, "conf": conf, "imgsz": imgsz,
                 "segmentation": seg_settings, "corrections": False, "ok_classes": ok_classes}
     old = out / "manifest.json"
     if old.exists() and not args.redo:
@@ -232,7 +232,7 @@ def main():
         from backend.predict import segment
         from backend.storage import cutout
         seg_model, seg_device = segment.load_warm(C.PREDICT_SEG_MODEL, args.device or C.PREDICT_DEVICE, C.PREDICT_SEG_IMGSZ, C.PREDICT_SEG_CONF, log)
-    log(f"{len(ids)} sets of {args.first} ~ {args.last or args.first} from {C.CAPTURES_DIR}: model {C.PREDICT_MODEL.name} on {device}, "
+    log(f"{len(ids)} sets of {args.first} ~ {args.last or args.first} from {C.CAPTURES_DIR}: model {C.PREDICT_MODEL_NAME} on {device}, "
         f"imgsz {imgsz}, conf {conf}, "
         + (f"background removal on {seg_device} (imgsz {C.PREDICT_SEG_IMGSZ}, conf {C.PREDICT_SEG_CONF}, grow {C.PREDICT_SEG_GROW})" if args.seg else "no segmentation")
         + f", no corrections -> {out}")
@@ -337,7 +337,7 @@ def main():
     method = (METHOD_SEG.format(seg_model=seg_settings["model"], removed=removed, pictures=pictures, per_camera=per_camera)
               if args.seg else METHOD_RAW)
     (out / "README.txt").write_text(README.format(title="background removed, then the defect model" if args.seg else "raw model output",
-                                                  method=method, model=C.PREDICT_MODEL.name, conf=conf, imgsz=imgsz, created=created,
+                                                  method=method, model=C.PREDICT_MODEL_NAME, conf=conf, imgsz=imgsz, created=created,
                                                   first=times[0][:10] if times else "-", last=times[-1][:10] if times else "-",
                                                   sets=len(rows), pictures=pictures, ok=", ".join(ok_classes) or "-"), encoding="utf-8")
     if args.zip:

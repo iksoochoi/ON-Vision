@@ -1,0 +1,15 @@
+Run: overspray_s_1280 (2026-11-20, train/defect_detection/train_overspray.py)
+
+Model: YOLO11s, 1 class (0: Overspray), imgsz 1280, 150 epochs, best.pt = epoch 145
+Data: train/defect_detection/data/overspray_yolo_2026-11-20_cut (background removed as the Predict worker does)
+  train 94 defect pictures (60 shoes) + 122 OK pictures (32 shoes), 99 boxes
+  val   23 defect pictures (14 shoes) +  46 OK pictures (12 shoes), 24 boxes
+  views front/left/right/back only (no top), defect pictures ON1WH only
+
+val (box): mAP50=0.559  mAP50-95=0.253  P=0.504  R=0.542
+val (shoe = any view with a box), eval_overspray.py:
+  conf 0.15: defect shoes found 10/14, OK shoes with a box 4/12
+  conf 0.25: defect shoes found 10/14, OK shoes with a box 2/12
+  conf 0.30: defect shoes found  8/14, OK shoes with a box 2/12
+  conf 0.40: defect shoes found  2/14, OK shoes with a box 0/12
+No box scores 0.5 or more on val: keep ON_PREDICT_CONF near 0.25.

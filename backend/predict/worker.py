@@ -123,7 +123,7 @@ def predict_set(meta, model, device, engine, cv2, seg=None):
     for d in dets:
         classes[d["class"]] = classes.get(d["class"], 0) + 1
     result = {"id": sid, "timestamp": meta.get("timestamp"), "shoe_id": meta.get("shoe_id"),
-              "model": C.PREDICT_MODEL.name, "device": device, "imgsz": C.PREDICT_IMGSZ, "conf": C.PREDICT_CONF,
+              "model": C.PREDICT_MODEL_NAME, "device": device, "imgsz": C.PREDICT_IMGSZ, "conf": C.PREDICT_CONF,
               "predicted_at": datetime.now().isoformat(timespec="seconds"),
               "ms": round((time.perf_counter() - started) * 1000),
               "defect": predictions.is_defect(dets, C.PREDICT_OK_CLASSES) if views else None,
@@ -169,7 +169,7 @@ def main():
             seg = (seg_model, seg_device, segment)
     log("background removal: " + (f"ON, {SEG_NAME} on {seg[1]}, imgsz {C.PREDICT_SEG_IMGSZ}, conf {C.PREDICT_SEG_CONF}, "
                                  f"grow {C.PREDICT_SEG_GROW}" if seg else "off"))
-    log(f"started: model {C.PREDICT_MODEL.name}, device {device}, imgsz {C.PREDICT_IMGSZ}, conf {C.PREDICT_CONF}, "
+    log(f"started: model {C.PREDICT_MODEL_NAME}, device {device}, imgsz {C.PREDICT_IMGSZ}, conf {C.PREDICT_CONF}, "
         f"threads {C.PREDICT_THREADS}, ok classes {C.PREDICT_OK_CLASSES}")
 
     stats = {"processed": 0, "failed": 0, "total_ms": 0, "last_id": None, "last_ms": None}
@@ -217,7 +217,7 @@ def main():
             last_status = now
             pending, _ = waiting(*limits)
             predictions.write_status({
-                "pid": os.getpid(), "ts": now, "started": started, "device": device, "model": C.PREDICT_MODEL.name,
+                "pid": os.getpid(), "ts": now, "started": started, "device": device, "model": C.PREDICT_MODEL_NAME,
                 "seg_model": SEG_NAME if seg else None,
                 "imgsz": C.PREDICT_IMGSZ, "processed": stats["processed"], "failed": stats["failed"],
                 "pending": len(pending), "last_id": stats["last_id"], "last_ms": stats["last_ms"],

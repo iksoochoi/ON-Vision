@@ -17,7 +17,7 @@ import shutil
 from datetime import datetime
 
 from ..core.config import (EXPORTS_DIR, PREDICT_CORRECT, PREDICT_EXPORT_MAX_SETS, PREDICT_EXPORT_MAX_SIDE,
-                           PREDICT_MODEL, PREDICT_ON_SHOE_MIN, PREDICT_RECUR_IOU, PREDICT_RECUR_MIN,
+                           PREDICT_MODEL_NAME, PREDICT_ON_SHOE_MIN, PREDICT_RECUR_IOU, PREDICT_RECUR_MIN,
                            PREDICT_SHOE_MAX_AREA)
 from . import predictions
 from .predict_draw import draw, read_picture, write_jpg
@@ -69,7 +69,7 @@ def _set_record(sample_id, corrected, originals, folder, ok_classes, max_side):
                "verdict": {"shown": "corrected" if corrected else "raw", "raw_defect": verdict.get("raw"),
                            "corrected_defect": verdict.get("corrected"), "raw_count": verdict.get("raw_count"),
                            "counted": verdict.get("count")}}
-    doc = {**summary, "model": {"file": PREDICT_MODEL.name, "device": result.get("device"), "imgsz": result.get("imgsz"),
+    doc = {**summary, "model": {"file": result.get("model") or PREDICT_MODEL_NAME, "device": result.get("device"), "imgsz": result.get("imgsz"),
                                 "conf": result.get("conf"), "predicted_at": result.get("predicted_at")},
            "views": views, "missing_pictures": missing, "ok_classes": list(ok_classes)}
     (out_dir / "result.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
