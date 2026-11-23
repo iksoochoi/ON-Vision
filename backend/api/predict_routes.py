@@ -1,5 +1,9 @@
 """Routes of the Predict page: the defect detection results the worker (backend/predict/worker.py) wrote."""
 
+import time
+import uuid
+from datetime import datetime
+
 import cv2
 
 from ..core.config import PREDICT_CORRECT, PREDICT_SEG_GROW
@@ -14,7 +18,56 @@ FILTERS = ("all", "defect", "ok", "error")
 MAX_LIMIT = 200
 
 
+def _period(data):
+    """(first, last) yyyy-mm-dd from {"from", "to"}, or raises ValueError with what is wrong."""
+    first, last = str(data.get("from") or ""), str(data.get("to") or "")
+    try:
+        a, b = datetime.strptime(first, "%Y-%m-%d"), datetime.strptime(last, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError("from / to: dates as yyyy-mm-dd") from None
+    if a > b:
+        raise ValueError("from is after to")
+    return first, last
+
+
 class PredictRoutes:
+    def _get_job(self, query):
+        """GET /api/predict/job?from=&to= -> {"sets", "with_result"} of that period (before asking for it), "job" (the
+        request waiting / being worked on, or null) and "progress" (the worker's status of the current or last period)."""
+        out = {"job": predictions.read_job(), "progress": predictions.read_status().get("job")}
+        if query.get("from") or query.get("to"):
+            try:
+                out.update(predictions.period_counts(*_period({"from": query.get("from", [""])[0], "to": query.get("to", [""])[0]})))
+            except ValueError as e:
+                self.send_error(400, str(e))
+                return
+        self._send_json(out)
+
+    def _start_job(self, data):
+        """POST /api/predict/job. Body: {"from", "to" (yyyy-mm-dd, both days included), "redo": true = also the sets that
+        already have a result}. The worker predicts the sets of that period (with a QR value) when no new set is waiting.
+        One period at a time: 409 while one is asked for (cancel it first). -> {"job", "sets", "with_result"}"""
+        try:
+            first, last = _period(data)
+        except ValueError as e:
+            self.send_error(400, str(e))
+            return
+        if predictions.read_job() is not None:
+            self.send_error(409, "a period is being predicted already: cancel it first")
+            return
+        job = {"id": uuid.uuid4().hex[:12], "from": first, "to": last, "redo": bool(data.get("redo")),
+               "requested_at": time.time()}
+        predictions.write_job(job)
+        broadcast({"key": "predict_changed"})
+        self._send_json({"job": job, **predictions.period_counts(first, last)})
+
+    def _cancel_job(self, data):
+        """POST /api/predict/job/cancel. Body: {"id"} (optional: only that request). The results made so far stay."""
+        cancelled = predictions.clear_job(data.get("id") or None)
+        if cancelled:
+            broadcast({"key": "predict_changed"})
+        self._send_json({"cancelled": cancelled})
+
     def _rebuild_zones(self):
         """POST /api/predict/zones/rebuild: make the shoe zones again from the latest sets (in the background)."""
         started = predictions.index.rebuild_zones()
@@ -98,6 +151,9 @@ class PredictRoutes:
         if rest == "zones":
             self._send_json(zones.status())
             return
+        if rest == "job":
+            self._get_job(query)
+            return
         if rest.endswith("/cutout"):
             self._send_cutout(rest[:-len("/cutout")], query)
             return
@@ -112,7 +168,7 @@ class PredictRoutes:
             corrected = query.get("corrected", ["1" if PREDICT_CORRECT else "0"])[0] != "0"
             rows, totals = predictions.index.page(flt if flt in FILTERS else "all", query.get("cls", [""])[0] or None,
                                                   query.get("date", [""])[0] or None, limit, offset, corrected)
-            self._send_json({"rows": rows, "totals": totals, "status": predictions.index.status()})
+            self._send_json({"rows": rows, "totals": totals, "status": predictions.index.status(), "job": predictions.read_job()})
             return
         if not ID_RE.match(rest):
             self.send_error(404)

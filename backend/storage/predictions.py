@@ -33,12 +33,16 @@ import threading
 import time
 
 from ..core.config import (PREDICT_DIR, PREDICT_MODEL, PREDICT_OK_CLASSES, PREDICT_ON_SHOE_MIN, PREDICT_RECUR_IOU,
-                           PREDICT_RECUR_MIN, PREDICT_SHOE_MAX_AREA)
+                           PREDICT_RECUR_MIN, PREDICT_SHOE_MAX_AREA, SETS_DIR)
 from .paths import ID_RE, has_qr_prefix, time_key
 from .zones import zones
 
 REFRESH_SEC = 1.5
 STATUS_NAME = ".status.json"
+# A period to predict, asked for on the Predict page: {"id", "from", "to" (yyyy-mm-dd, both days included), "redo",
+# "requested_at" (epoch seconds)}. The app writes it, the worker works it off when no new set is waiting and removes it
+# when it is done; the app removes it to cancel. One at a time. The worker's progress is in .status.json ("job").
+JOB_NAME = ".job.json"
 STATUS_FRESH_SEC = 20.0   # the worker counts as alive when its status is this young
 CHUNK = 512               # rows of the overlap matrix worked out at a time
 
@@ -90,6 +94,59 @@ def read_result(sample_id):
 
 def write_status(status):
     _write_json(PREDICT_DIR / STATUS_NAME, status)
+
+
+def read_job():
+    """The period waiting to be predicted, or None."""
+    try:
+        job = json.loads((PREDICT_DIR / JOB_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return job if isinstance(job, dict) and job.get("id") else None
+
+
+def write_job(job):
+    _write_json(PREDICT_DIR / JOB_NAME, job)
+
+
+def clear_job(job_id=None):
+    """Remove the period request (only when it is still job_id, when given). Returns True when one was removed."""
+    job = read_job()
+    if job is None or (job_id is not None and job.get("id") != job_id):
+        return False
+    try:
+        (PREDICT_DIR / JOB_NAME).unlink()
+        return True
+    except OSError:
+        return False
+
+
+def period_ids(first, last):
+    """The sets with a QR value (the only ones Predict deals with) captured from day `first` to day `last`
+    (yyyy-mm-dd, both included), newest first."""
+    lo, hi = first.replace("-", ""), last.replace("-", "")
+    try:
+        names = [e.name[:-5] for e in os.scandir(SETS_DIR) if e.name.endswith(".json")]
+    except OSError:
+        return []
+    ids = [s for s in names if ID_RE.match(s) and has_qr_prefix(s) and lo <= time_key(s)[:8] <= hi]
+    ids.sort(key=time_key, reverse=True)
+    return ids
+
+
+def job_done(sample_id, job):
+    """Does this set need nothing more for the job: it has a result, and with "redo" one written after the job was asked for."""
+    try:
+        mtime = result_path(sample_id).stat().st_mtime
+    except OSError:
+        return False
+    return not job.get("redo") or mtime >= job.get("requested_at", 0)
+
+
+def period_counts(first, last):
+    """{"sets", "with_result"} of a period: what the page shows before the period is asked for."""
+    ids = period_ids(first, last)
+    return {"sets": len(ids), "with_result": sum(result_path(s).exists() for s in ids)}
 
 
 def read_status():
@@ -256,7 +313,7 @@ class PredictIndex:
             except OSError:
                 entries = []
             for e in entries:
-                if not e.name.endswith(".json") or e.name == STATUS_NAME:
+                if not e.name.endswith(".json") or e.name in (STATUS_NAME, JOB_NAME):
                     continue
                 sid = e.name[:-5]
                 if not has_qr_prefix(sid):   # sets without a QR value are not part of Predict (a result of an earlier run is not listed)
@@ -280,7 +337,7 @@ class PredictIndex:
                 del self._mtime[sid]
                 changed = True
             status = read_status()
-            if self._status is None or any(status.get(k) != self._status.get(k) for k in ("alive", "processed", "pending", "failed")):
+            if self._status is None or any(status.get(k) != self._status.get(k) for k in ("alive", "processed", "pending", "failed", "job")):
                 changed = changed or self._status is not None
                 self._status = status
             if changed:

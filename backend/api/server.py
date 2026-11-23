@@ -188,6 +188,10 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, Pr
             self._delete_predict(data)
         elif path == "/api/predict/zones/rebuild":
             self._rebuild_zones()
+        elif path == "/api/predict/job":
+            self._start_job(data)
+        elif path == "/api/predict/job/cancel":
+            self._cancel_job(data)
         elif path == "/api/imagelab/process":
             self._imagelab_process(data)
         elif path == "/api/imagelab/upload":

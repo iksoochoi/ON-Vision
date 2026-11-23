@@ -63,3 +63,11 @@
 .qr-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .qr-table a { color: var(--accent); }
 .nopic { padding: 40px 10px; text-align: center; color: var(--dim); font-size: 12px; background: #070a08; }
+/* Predict a period: two dates, "again", the button and the worker's progress */
+.jobbox { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.jobtitle { font: 680 12px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .04em; color: var(--dim); }
+.jobbar { gap: 8px; align-items: center; flex-wrap: wrap; }
+.jobbar input[type="date"] { flex: 1; min-width: 0; color-scheme: dark; background: var(--well); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+.jobbar button { padding: 6px 12px; margin-left: auto; }
+.jobmsg-run { color: var(--accent); }
+.jobmsg button { padding: 2px 10px; margin-left: 6px; }

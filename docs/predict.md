@@ -15,7 +15,7 @@ ON_PREDICT_MODEL=overspray # overspray | poc | path
 ./bin/install_launchd.sh predict-restart      # 워커가 새 모델을 읽음 (앱은 재시작 필요 없음)
 ```
 - 모델 폴더마다 `best.pt`, `class_metrics.json`(화면의 Class mAP50), `summary.txt`(학습 정보)가 있습니다. 결과 JSON의 `model`은 `overspray/best.pt`처럼 폴더 이름까지 적힙니다(이전 결과는 `best.pt`).
-- **주의: 모델을 바꿔도 이미 만든 결과(`captures/.predict/`)는 그대로 남습니다.** 이전 모델의 결과와 섞이지 않게 하려면 바꾼 뒤 Predict 화면에서 **Delete all results**를 누르세요. 최근 24시간 세트는 새 모델로 다시 예측됩니다(그 전 세트까지: `--backfill`).
+- **주의: 모델을 바꿔도 이미 만든 결과(`captures/.predict/`)는 그대로 남습니다.** 이전 모델 결과를 새 모델로 바꾸려면 Predict 화면의 **Predict a period**에서 기간을 고르고 **again**을 켜서 예측하세요(아래 "기간 예측").
 - **Overspray 모델 주의**: 학습 사진에 top 뷰가 없고(front/left/right/back만), 불량 예시는 ON1WH뿐이며 back 불량은 7장뿐입니다. top 사진과 back 사진의 박스는 특히 조심해서 보세요. 점수 0.5를 넘는 박스가 거의 없으므로 `ON_PREDICT_CONF`는 0.25 근처로 두세요(0.4면 불량을 대부분 놓침).
 
 ## 불량 검출 과정 (신발 배경 제거 → 불량 모델)
@@ -80,6 +80,20 @@ git pull
 - **DEFECT 기준**: `ON_PREDICT_OK_CLASSES`에 없는 클래스가 하나라도 검출되면 불량입니다. `poc` 모델에 "좋은 인쇄" 클래스(`Print4_poor_print_good`)가 있어서 기본으로 OK 클래스에 넣었습니다. `overspray` 모델에는 그 클래스가 없으므로 영향이 없습니다(Overspray 박스가 하나라도 있으면 DEFECT).
 - ERROR: 사진을 하나도 읽지 못했거나 추론이 실패한 세트(다시 시도하지 않음). 일부 사진만 빠진 세트는 나머지로 판정하고 카메라 칸에 이유가 나옵니다.
 
+## 기간 예측 (Predict a period)
+워커는 평소 최근 24시간(`ON_PREDICT_MAX_AGE_HOURS`) 세트만 예측합니다. 그보다 오래된 세트나, 모델을 바꾼 뒤 이전 결과를 다시 예측하려면 화면 왼쪽의 **Predict a period**를 씁니다.
+1. 첫날과 마지막 날을 고릅니다(두 날 모두 포함, 기본은 오늘).
+2. **again (with a result too)**: 켜면 결과가 이미 있는 세트도 다시 예측해서 결과를 바꿉니다(모델을 바꾼 뒤). 끄면 결과가 없는 세트만 합니다.
+3. **Predict**를 누르면 세트 수, 다시 예측되는 수, 예상 시간을 묻고 시작합니다.
+- **현장 라인이 먼저**: 워커는 새로 들어온 세트가 없을 때만 기간 세트를 예측합니다(새 세트를 예측한 라운드에는 기간 세트를 하지 않음). 수집 중에 돌려도 새 신발 결과가 늦어지지 않습니다.
+- 진행 상황이 버튼 아래에 나옵니다(`Predicting … 120 / 300 · about 5 min left`, 약 5초마다 갱신). **Cancel**로 멈추면 그때까지 만든 결과는 남습니다(워커가 하던 라운드를 마치고 몇 초 뒤 멈춤). 끝나면 `Last period … done, N predicted`.
+- 한 번에 한 기간만 됩니다. 진행 중에는 Predict 버튼이 꺼집니다(먼저 Cancel).
+- QR 값이 읽힌 세트만 대상입니다(평소 예측과 같음). 시간 기준은 세트 ID의 촬영 시각입니다.
+- 워커가 꺼져 있으면 요청은 `waiting: the worker is not running`으로 남아 있다가 워커가 켜지면 시작합니다. 워커를 재시작하면 같은 요청을 이어서 합니다(again이면 요청 뒤에 만든 결과는 다시 하지 않음).
+- 속도: Mac에서 세트당 약 3초 안팎(배경 제거 포함)이면 1,000세트에 약 50분입니다. 확인 창의 예상 시간은 워커의 평균 시간으로 계산합니다.
+- 요청 파일: `captures/.predict/.job.json`(앱이 쓰고, 워커가 끝나면 지움, Cancel이면 앱이 지움). 진행 상황: `.status.json`의 `job`.
+- API: `GET /api/predict/job?from=2026-11-05&to=2026-11-09` → `{"sets", "with_result", "job", "progress"}`, `POST /api/predict/job` 본문 `{"from", "to", "redo"}`(진행 중이면 409), `POST /api/predict/job/cancel`.
+
 ## 결과 저장 (Save 버튼)
 화면에 보이는 결과를 **박스가 그려진 사진 + result.json**으로 파일에 저장합니다. 불량 후보 정리, 재학습 라벨링 준비, 다른 곳으로 옮겨 보기 위한 용도입니다.
 - **Save this set**(오른쪽 위, 세트 제목 아래): 지금 열어 둔 세트 하나.
@@ -104,7 +118,7 @@ Predict 화면에서 **불량 탐지 결과만** 지웁니다. 세트와 사진�
 - **선택 삭제**: 목록 왼쪽 체크박스로 세트를 고르고(**select shown**: 보이는 것 모두) **Delete selected**. 체크박스를 눌러도 세트가 열리지는 않습니다.
 - **한 세트**: 세트를 열었을 때 위쪽의 **Delete result**.
 - **전체 삭제**: **Delete all results**. 확인 창이 한 번 뜹니다.
-- 지우면 워커가 **최근 세트(`ON_PREDICT_MAX_AGE_HOURS`, 24시간 이내)는 다시 예측**합니다. 그래서 설정이나 모델을 바꾼 뒤 "다시 예측"하는 용도로도 씁니다. 더 오래된 세트는 결과 없이 남고, 모두 다시 하려면 `python -m backend.predict.worker --backfill`을 씁니다.
+- 지우면 워커가 **최근 세트(`ON_PREDICT_MAX_AGE_HOURS`, 24시간 이내)는 다시 예측**합니다. 그래서 설정이나 모델을 바꾼 뒤 "다시 예측"하는 용도로도 씁니다. 더 오래된 세트는 결과 없이 남습니다. 다시 하려면 **Predict a period**(위)를 씁니다.
 - API: `POST /api/predict/delete` 본문 `{"ids": [세트 id, ...]}` 또는 `{"all": true}` → `{"deleted": n}`.
 - 세트 자체를 지우면(Gallery 삭제) 결과도 함께 지워집니다(원래 동작).
 

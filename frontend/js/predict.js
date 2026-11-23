@@ -18,6 +18,7 @@ let currentCtx = null;   // and what helps to judge it (data.context)
 const picked = new Set();   // the sets ticked in the list (to delete their results)
 let loading = false;
 let again = false;
+let lastStatus = null;   // the worker's status of the last load (its speed, for the period estimate)
 
 const imageUrl = (id, role, kind) => `/api/samples/${encodeURIComponent(id)}/${kind}?view=${encodeURIComponent(role)}`;
 // the picture as the defect model saw it (the shoe cut out, the background grey): only when the result has an outline of the shoe for it
@@ -92,6 +93,84 @@ function renderWorker(status) {
   chip.className = 'chip ok';
   chip.textContent = `worker: ${status.device} · ${status.avg_ms == null ? '-' : status.avg_ms} ms/set · ${status.pending} waiting`;
   chip.title = `model ${status.model}, ${status.imgsz}px, ${status.processed} predicted, ${status.failed} failed`;
+}
+
+// Predict a period: the app only writes the request (captures/.predict/.job.json); the worker predicts those sets when no
+// new set is waiting and reports its progress in its status ("job"). One period at a time.
+const minutes = (ms) => (ms < 60000 ? 'under a minute' : `about ${Math.round(ms / 60000)} min`);
+
+function renderJob(job, status) {
+  const msg = $('jobMsg');
+  const p = status && status.job;
+  $('jobStart').disabled = !!job;
+  if (job) {
+    const mine = p && p.id === job.id && p.state === 'running';
+    let text;
+    if (mine) {
+      const left = Math.max(0, p.total - p.done - p.skipped);
+      text = `Predicting ${esc(job.from)} ~ ${esc(job.to)}${job.redo ? ' (again)' : ''}: <b>${p.done + p.skipped} / ${p.total}</b>` +
+        (p.failed ? ` · ${p.failed} failed` : '') + (status.avg_ms && left ? ` · ${minutes(left * status.avg_ms)} left` : '') +
+        (status.pending ? ' · new sets first' : '');
+    } else {
+      text = `${esc(job.from)} ~ ${esc(job.to)}${job.redo ? ' (again)' : ''}: ` +
+        (status && status.alive ? 'waiting for the worker…' : 'waiting: the worker is not running');
+    }
+    msg.hidden = false;
+    msg.className = 'hint jobmsg jobmsg-run';
+    msg.innerHTML = `${text}<button type="button" id="jobCancel" class="secondary" data-id="${esc(job.id)}" title="Stop: the results made so far stay">Cancel</button>`;
+    return;
+  }
+  if (p && p.state === 'running' && status.alive) {   // cancelled here, the worker has not seen it yet
+    msg.hidden = false;
+    msg.className = 'hint jobmsg';
+    msg.textContent = `Stopping ${p.from} ~ ${p.to}… (${p.done + p.skipped} of ${p.total} done)`;
+    return;
+  }
+  if (p && p.state !== 'running') {
+    msg.hidden = false;
+    msg.className = 'hint jobmsg' + (p.state === 'done' ? ' savedok' : '');
+    msg.textContent = `Last period ${p.from} ~ ${p.to}${p.redo ? ' (again)' : ''}: ` + (p.state === 'done'
+      ? `done, ${p.done} predicted` + (p.failed ? `, ${p.failed} failed` : '') + (p.skipped ? `, ${p.skipped} left out (set not readable)` : '')
+      : `cancelled after ${p.done} of ${p.total}`);
+    return;
+  }
+  msg.hidden = true;
+}
+
+async function startJob() {
+  const from = $('jobFrom').value, to = $('jobTo').value, redo = $('jobRedo').checked;
+  const msg = $('jobMsg');
+  const fail = (text) => { msg.hidden = false; msg.className = 'hint jobmsg saveerr'; msg.textContent = text; };
+  if (!from || !to) return fail('Pick the first and the last day.');
+  if (from > to) return fail('The first day is after the last day.');
+  try {
+    const c = await getJson(`/api/predict/job?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+    if (!c.sets) return fail(`No set with a QR value was captured from ${from} to ${to}.`);
+    const n = redo ? c.sets : c.sets - c.with_result;
+    if (!n) return fail(`All ${c.sets} sets of ${from} ~ ${to} have a result already. Tick "again" to predict them again.`);
+    const avg = lastStatus && lastStatus.avg_ms;
+    if (!window.confirm(`Predict ${n} set${n === 1 ? '' : 's'} captured ${from} ~ ${to}?` +
+      (c.with_result ? (redo ? `\n${c.with_result} of them have a result: it is replaced.` : `\n${c.with_result} sets with a result are left as they are.`) : '') +
+      (avg ? `\nTakes ${minutes(n * avg)} (${avg} ms per set); new sets of the line come first.` : '\nNew sets of the line come first.'))) return;
+    const r = await fetch('/api/predict/job', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from, to, redo }) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || r.status);
+    await load(false);
+  } catch (e) {
+    fail('Could not start: ' + e.message);
+  }
+}
+
+async function cancelJob(id, button) {
+  if (!window.confirm('Stop predicting this period? The results made so far stay.')) return;
+  button.disabled = true;
+  try {
+    const r = await fetch('/api/predict/job/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+    if (!r.ok) throw new Error(r.status);
+  } catch (e) {
+    button.disabled = false;
+  }
+  await load(false);
 }
 
 function fillSelect(sel, items, all) {
@@ -182,7 +261,9 @@ async function load(append) {
     $('saveAll').disabled = !totals.matching;
     $('corrInfo').textContent = corrected ? `${totals.raw_defect} → ${totals.defect} defect sets` : '';
     rows = append ? rows.concat(data.rows) : data.rows;
+    lastStatus = data.status;
     renderWorker(data.status);
+    renderJob(data.job, data.status);
     renderFilters();
     renderRows();
     if (!selected && !append && rows.length) showSet(rows[0].id);   // the newest set is shown at first
@@ -319,6 +400,17 @@ $('detail').addEventListener('click', (e) => {
   const d = e.target.closest('#delOne');
   if (d && selected) deleteResults({ ids: [selected] }, 'Delete the result of this set? The set and its pictures stay.', d);
 });
+$('jobStart').onclick = startJob;
+$('jobMsg').addEventListener('click', (e) => {
+  const b = e.target.closest('#jobCancel');
+  if (b) cancelJob(b.dataset.id, b);
+});
+{
+  const d = new Date();
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  $('jobFrom').value = today;
+  $('jobTo').value = today;
+}
 $('dateSel').onchange = () => load(false);
 $('clsSel').onchange = () => load(false);
 $('moreBtn').onclick = () => load(true);
@@ -339,7 +431,7 @@ $('pickAll').onchange = () => {
 $('delSel').onclick = () => deleteResults({ ids: [...picked] },
   `Delete the results of ${picked.size} set${picked.size === 1 ? '' : 's'}? The sets and their pictures stay. The worker predicts sets that are not older than its age limit again.`, $('delSel'));
 $('delAll').onclick = () => deleteResults({ all: true },
-  `Delete the results of ALL ${totals ? totals.all : ''} sets? The sets and their pictures stay. The worker predicts the recent ones again (ON_PREDICT_MAX_AGE_HOURS, 24 hours at first); older sets stay without a result until the worker is run with --backfill.`, $('delAll'));
+  `Delete the results of ALL ${totals ? totals.all : ''} sets? The sets and their pictures stay. The worker predicts the recent ones again (ON_PREDICT_MAX_AGE_HOURS, 24 hours at first); older sets stay without a result until you predict their period again (Predict a period).`, $('delAll'));
 $('detail').onclick = (e) => {
   const box = e.target.closest('.pred-box[data-role]');
   if (box) openLightbox($('detail').dataset.id, box.dataset.role);

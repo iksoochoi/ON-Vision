@@ -11,7 +11,8 @@ through two models: the shoe segmentation (backend/models/shoe_segmentation) cut
 by flat grey, then the defect model looks at that picture (ON_PREDICT_SEG=0: at the picture as it was saved). The camera app never
 waits for it and never imports it: a slow or crashed worker cannot disturb the data collection. It runs at a low
 priority, with few CPU threads (the GPU does the work on a Mac), and a backlog is never worked off at the cost of the
-new sets: only the newest ON_PREDICT_MAX_BACKLOG waiting sets within ON_PREDICT_MAX_AGE_HOURS are considered."""
+new sets: only the newest ON_PREDICT_MAX_BACKLOG waiting sets within ON_PREDICT_MAX_AGE_HOURS are considered.
+A period asked for on the Predict page (captures/.predict/.job.json, see PeriodJob) is worked off only while no new set waits."""
 
 import argparse
 import json
@@ -34,6 +35,7 @@ SETTLE_SEC = 1.5       # a set file must be this old: the app writes the picture
 INCOMPLETE_SEC = 30.0  # pictures still missing after this long: predict what exists
 STATUS_EVERY_SEC = 5.0
 ONCE_WAIT_SEC = 60.0   # --once: how long to wait for sets that are not readable yet
+YOUNG_RETRY_SEC = 30.0  # a period's set file this young that cannot be read yet is tried again later, an older one is left out
 
 
 def log(message):
@@ -69,6 +71,47 @@ def waiting(max_age_hours, max_backlog, now=None):
         todo.append(stem)
     todo.sort(key=time_key, reverse=True)
     return todo[:max_backlog], max(0, len(todo) - max_backlog)
+
+
+class PeriodJob:
+    """A period asked for on the Predict page (storage/predictions.py JOB_NAME). Its sets are predicted only when no new set
+    is waiting, newest first; with "redo" also the sets that already have a result. self.summary goes into the status."""
+
+    def __init__(self, req):
+        self.req = req
+        ids = predictions.period_ids(req["from"], req["to"])
+        self.todo = [s for s in ids if not predictions.job_done(s, req)]
+        self.summary = {"id": req["id"], "from": req["from"], "to": req["to"], "redo": bool(req.get("redo")),
+                        "sets": len(ids), "total": len(self.todo), "done": 0, "failed": 0, "skipped": 0,
+                        "state": "running", "started": time.time()}
+
+    def finish(self, state):
+        self.summary.update(state=state, finished=time.time())
+        if state == "done":
+            predictions.clear_job(self.req["id"])
+
+
+def current_job(job):
+    """The job to work on now: the same one while its request stays, a new one for a new request. A request that went
+    away (cancelled on the page) ends the job. Returns (job or None, the summary of a job that just ended or None)."""
+    req = predictions.read_job()
+    if job is not None and (req is None or req.get("id") != job.req["id"]):
+        job.finish("cancelled")
+        ended, job = job.summary, None
+        if req is None:
+            return None, ended
+    else:
+        ended = None
+    if job is None and req is not None:
+        try:
+            job = PeriodJob(req)
+        except (KeyError, TypeError, AttributeError) as e:
+            log(f"period request not understood ({type(e).__name__}: {e}): removed")
+            predictions.clear_job(req.get("id"))
+            return None, ended
+        log(f"period {req['from']} ~ {req['to']}{' (again)' if req.get('redo') else ''}: {job.summary['sets']} sets, "
+            f"{job.summary['total']} to predict")
+    return job, ended
 
 
 def load_set(stem):
@@ -177,7 +220,32 @@ def main():
     last_status, skipped_logged = 0.0, 0
     limits = (0, 10 ** 9) if args.backfill else (C.PREDICT_MAX_AGE_HOURS, C.PREDICT_MAX_BACKLOG)
     first_pass = True
+    job, last_job = None, None   # the period being predicted, and the one before it (shown on the page until a new one)
+
+    def predict_and_write(meta, tag_prefix=""):
+        try:
+            result = predict_set(meta, model, device, engine, cv2, seg)
+        except Exception as e:   # one bad set must not stop the worker: it gets an error result and is not retried
+            log(f"{meta['id']} failed: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+            result = {"id": meta["id"], "timestamp": meta.get("timestamp"), "shoe_id": meta.get("shoe_id"),
+                      "predicted_at": datetime.now().isoformat(timespec="seconds"), "defect": None, "count": 0,
+                      "classes": {}, "views": {}, "error": f"{type(e).__name__}: {e}"}
+        predictions.write_result(result)
+        stats["processed"] += 1
+        stats["failed"] += 1 if result.get("error") else 0
+        stats["total_ms"] += result.get("ms", 0)
+        stats["last_id"], stats["last_ms"] = result["id"], result.get("ms")
+        tag = "ERROR " + result["error"] if result.get("error") else (
+            "DEFECT " + ", ".join(f"{k} x{v}" for k, v in result["classes"].items() if k not in C.PREDICT_OK_CLASSES)
+            if result["defect"] else "ok" + (f" ({', '.join(result['classes'])})" if result["classes"] else ""))
+        log(f"{tag_prefix}{result['id']}: {result['ms']} ms, {result['count']} detections, {tag}"
+            + (f", shoe cut out in {len(result['seg']['background_removed'])} of {len(result['views'])} pictures" if result.get("seg") else "")
+            + (f", pictures missing: {', '.join(result['errors'])}" if result.get("errors") else "")
+            + (f", segmentation failed: {', '.join(result['seg']['errors'])}" if (result.get("seg") or {}).get("errors") else ""))
+        return result
+
     while True:
+        loop_started = time.time()
         todo, left_out = waiting(*limits)
         if left_out and left_out != skipped_logged:
             skipped_logged = left_out
@@ -190,28 +258,45 @@ def main():
             meta = load_set(stem)
             if meta is None or "id" not in meta:
                 continue
-            try:
-                result = predict_set(meta, model, device, engine, cv2, seg)
-            except Exception as e:   # one bad set must not stop the worker: it gets an error result and is not retried
-                log(f"{stem} failed: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-                result = {"id": meta["id"], "timestamp": meta.get("timestamp"), "shoe_id": meta.get("shoe_id"),
-                          "predicted_at": datetime.now().isoformat(timespec="seconds"), "defect": None, "count": 0,
-                          "classes": {}, "views": {}, "error": f"{type(e).__name__}: {e}"}
-            predictions.write_result(result)
+            predict_and_write(meta)
             did = True
-            stats["processed"] += 1
-            stats["failed"] += 1 if result.get("error") else 0
-            stats["total_ms"] += result.get("ms", 0)
-            stats["last_id"], stats["last_ms"] = result["id"], result.get("ms")
-            tag = "ERROR " + result["error"] if result.get("error") else (
-                "DEFECT " + ", ".join(f"{k} x{v}" for k, v in result["classes"].items() if k not in C.PREDICT_OK_CLASSES)
-                if result["defect"] else "ok" + (f" ({', '.join(result['classes'])})" if result["classes"] else ""))
-            log(f"{result['id']}: {result['ms']} ms, {result['count']} detections, {tag}"
-                + (f", shoe cut out in {len(result['seg']['background_removed'])} of {len(result['views'])} pictures" if result.get("seg") else "")
-                + (f", pictures missing: {', '.join(result['errors'])}" if result.get("errors") else "")
-                + (f", segmentation failed: {', '.join(result['seg']['errors'])}" if (result.get("seg") or {}).get("errors") else ""))
             if time.time() - last_status >= STATUS_EVERY_SEC:
                 break   # look at the waiting list again (newer sets come first) and write the status
+        job, ended = current_job(job)
+        if ended:
+            last_job = ended
+            log(f"period {ended['from']} ~ {ended['to']} cancelled: {ended['done']} of {ended['total']} predicted")
+            last_status = 0.0   # say so at once
+        if job is not None and not did:   # a period only while no new set was predicted in this round
+            young = []   # sets just being saved: again in a later round
+            while job.todo and time.time() - loop_started < STATUS_EVERY_SEC:
+                stem = job.todo.pop(0)
+                if predictions.job_done(stem, job.req):   # the normal round did it in the meantime
+                    job.summary["done"] += 1
+                    continue
+                meta = load_set(stem)
+                if meta is None or "id" not in meta:
+                    try:
+                        fresh = time.time() - (C.SETS_DIR / f"{stem}.json").stat().st_mtime < YOUNG_RETRY_SEC
+                    except OSError:
+                        fresh = False
+                    if fresh:
+                        young.append(stem)
+                    else:   # deleted, or not readable: left out
+                        job.summary["skipped"] += 1
+                    continue
+                result = predict_and_write(meta, f"period {job.summary['done'] + job.summary['skipped'] + 1}/{job.summary['total']} ")
+                job.summary["done"] += 1
+                job.summary["failed"] += 1 if result.get("error") else 0
+                did = True
+            job.todo.extend(young)
+            if not job.todo:
+                job.finish("done")
+                s = job.summary
+                log(f"period {s['from']} ~ {s['to']} done: {s['done']} predicted ({s['failed']} failed), {s['skipped']} left out, "
+                    f"{round(s['finished'] - s['started'])} s")
+                last_job, job = s, None
+                last_status = 0.0   # say so at once
         now = time.time()
         if did or now - last_status >= STATUS_EVERY_SEC:
             last_status = now
@@ -221,8 +306,9 @@ def main():
                 "seg_model": SEG_NAME if seg else None,
                 "imgsz": C.PREDICT_IMGSZ, "processed": stats["processed"], "failed": stats["failed"],
                 "pending": len(pending), "last_id": stats["last_id"], "last_ms": stats["last_ms"],
-                "avg_ms": round(stats["total_ms"] / stats["processed"]) if stats["processed"] else None})
-        if args.once and not did and (not todo or time.time() - started > ONCE_WAIT_SEC):
+                "avg_ms": round(stats["total_ms"] / stats["processed"]) if stats["processed"] else None,
+                "job": dict(job.summary) if job is not None else last_job})
+        if args.once and not did and job is None and (not todo or time.time() - started > ONCE_WAIT_SEC):
             return   # nothing left (sets that are too young to read are waited for a while)
         if not did:
             time.sleep(POLL_SEC)

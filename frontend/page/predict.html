@@ -58,6 +58,19 @@
           <label class="corr" title="Tick or untick every set of the list"><input type="checkbox" id="pickAll"> select shown</label>
         </div>
         <div class="hint" id="saveMsg" hidden></div>
+        <div class="jobbox">
+          <div class="jobtitle" title="The worker predicts the sets (with a QR value) captured on these days, when no new set is waiting: the line comes first">Predict a period</div>
+          <div class="row jobbar">
+            <input type="date" id="jobFrom" title="First day (included)" aria-label="First day">
+            <span>~</span>
+            <input type="date" id="jobTo" title="Last day (included)" aria-label="Last day">
+          </div>
+          <div class="row jobbar">
+            <label class="corr" title="Also predict the sets that already have a result (for example after the model was changed). Off: only the sets without a result."><input type="checkbox" id="jobRedo"> again (with a result too)</label>
+            <button type="button" id="jobStart" class="secondary">Predict</button>
+          </div>
+          <div class="hint" id="jobMsg" hidden></div>
+        </div>
         <label class="corr" title="Show the pictures as the defect model saw them: the shoe cut out by the segmentation model, the background flat grey. Only for sets predicted with the background removal."><input type="checkbox" id="showCut"> Show background removed</label>
         <label class="corr" title="Detections that recur at the same place in many sets, or lie off the shoe, do not count for the verdict"><input type="checkbox" id="corr"> Apply corrections <small id="corrInfo"></small></label>
       </div>
