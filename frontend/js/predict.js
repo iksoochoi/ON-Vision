@@ -256,10 +256,10 @@ async function load(append) {
     totals = data.totals;
     okClasses = totals.ok_classes || [];
     if (corrected === null) corrected = !!totals.corrected;
-    $('corr').checked = corrected;
+    if ($('corr')) $('corr').checked = corrected;
     $('saveAll').textContent = totals.matching ? `Save shown (${totals.matching})` : 'Save shown';
     $('saveAll').disabled = !totals.matching;
-    $('corrInfo').textContent = corrected ? `${totals.raw_defect} → ${totals.defect} defect sets` : '';
+    if ($('corrInfo')) $('corrInfo').textContent = corrected ? `${totals.raw_defect} → ${totals.defect} defect sets` : '';
     rows = append ? rows.concat(data.rows) : data.rows;
     lastStatus = data.status;
     renderWorker(data.status);
@@ -387,7 +387,7 @@ $('flt').onclick = (e) => {
   document.querySelectorAll('#flt button').forEach((x) => x.classList.toggle('active', x === b));
   load(false);
 };
-$('corr').onchange = () => { corrected = $('corr').checked; load(false); if (selected) showSet(selected); };
+if ($('corr')) $('corr').onchange = () => { corrected = $('corr').checked; load(false); if (selected) showSet(selected); };
 $('showCut').onchange = () => { if (selected) showSet(selected); };
 $('saveAll').onclick = () => {
   const n = totals ? totals.matching : 0;
