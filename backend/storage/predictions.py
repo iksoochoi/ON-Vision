@@ -43,6 +43,9 @@ STATUS_NAME = ".status.json"
 # "requested_at" (epoch seconds)}. The app writes it, the worker works it off when no new set is waiting and removes it
 # when it is done; the app removes it to cancel. One at a time. The worker's progress is in .status.json ("job").
 JOB_NAME = ".job.json"
+# The switch of the Predict page "Predict new sets": {"on": true | false}. Off (and no file) = the worker predicts only the
+# periods asked for, not the sets the line saves. The worker reads it every round.
+LIVE_NAME = ".live.json"
 STATUS_FRESH_SEC = 20.0   # the worker counts as alive when its status is this young
 CHUNK = 512               # rows of the overlap matrix worked out at a time
 
@@ -94,6 +97,18 @@ def read_result(sample_id):
 
 def write_status(status):
     _write_json(PREDICT_DIR / STATUS_NAME, status)
+
+
+def read_live():
+    """True when the worker is to predict the new sets the line saves (off when it was never switched on)."""
+    try:
+        return json.loads((PREDICT_DIR / LIVE_NAME).read_text(encoding="utf-8")).get("on") is True
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def write_live(on):
+    _write_json(PREDICT_DIR / LIVE_NAME, {"on": bool(on), "changed_at": time.time()})
 
 
 def read_job():
@@ -313,7 +328,7 @@ class PredictIndex:
             except OSError:
                 entries = []
             for e in entries:
-                if not e.name.endswith(".json") or e.name in (STATUS_NAME, JOB_NAME):
+                if not e.name.endswith(".json") or e.name in (STATUS_NAME, JOB_NAME, LIVE_NAME):
                     continue
                 sid = e.name[:-5]
                 if not has_qr_prefix(sid):   # sets without a QR value are not part of Predict (a result of an earlier run is not listed)
@@ -337,7 +352,7 @@ class PredictIndex:
                 del self._mtime[sid]
                 changed = True
             status = read_status()
-            if self._status is None or any(status.get(k) != self._status.get(k) for k in ("alive", "processed", "pending", "failed", "job")):
+            if self._status is None or any(status.get(k) != self._status.get(k) for k in ("alive", "processed", "pending", "failed", "job", "live")):
                 changed = changed or self._status is not None
                 self._status = status
             if changed:

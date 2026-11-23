@@ -12,6 +12,8 @@ by flat grey, then the defect model looks at that picture (ON_PREDICT_SEG=0: at 
 waits for it and never imports it: a slow or crashed worker cannot disturb the data collection. It runs at a low
 priority, with few CPU threads (the GPU does the work on a Mac), and a backlog is never worked off at the cost of the
 new sets: only the newest ON_PREDICT_MAX_BACKLOG waiting sets within ON_PREDICT_MAX_AGE_HOURS are considered.
+The new sets are predicted only while "Predict new sets" is ticked on the Predict page (captures/.predict/.live.json; off by
+default: then only the periods are predicted). --once and --backfill always predict the waiting sets.
 A period asked for on the Predict page (captures/.predict/.job.json, see PeriodJob) is worked off only while no new set waits."""
 
 import argparse
@@ -221,6 +223,8 @@ def main():
     limits = (0, 10 ** 9) if args.backfill else (C.PREDICT_MAX_AGE_HOURS, C.PREDICT_MAX_BACKLOG)
     first_pass = True
     job, last_job = None, None   # the period being predicted, and the one before it (shown on the page until a new one)
+    forced = args.once or args.backfill   # asked for on the command line: the page switch does not count
+    live_was = None
 
     def predict_and_write(meta, tag_prefix=""):
         try:
@@ -246,7 +250,12 @@ def main():
 
     while True:
         loop_started = time.time()
-        todo, left_out = waiting(*limits)
+        live = forced or predictions.read_live()
+        if live != live_was:
+            live_was = live
+            log("new sets: " + ("predicted" if live else "not predicted (Predict new sets is off on the Predict page)"))
+            first_pass, last_status = True, 0.0   # the page shows the switch from the status: write it at once
+        todo, left_out = waiting(*limits) if live else ([], 0)
         if left_out and left_out != skipped_logged:
             skipped_logged = left_out
             log(f"{left_out} older waiting sets are left out (ON_PREDICT_MAX_BACKLOG={C.PREDICT_MAX_BACKLOG}; --backfill does them)")
@@ -300,13 +309,13 @@ def main():
         now = time.time()
         if did or now - last_status >= STATUS_EVERY_SEC:
             last_status = now
-            pending, _ = waiting(*limits)
+            pending, _ = waiting(*limits) if live else ([], 0)
             predictions.write_status({
                 "pid": os.getpid(), "ts": now, "started": started, "device": device, "model": C.PREDICT_MODEL_NAME,
                 "seg_model": SEG_NAME if seg else None,
                 "imgsz": C.PREDICT_IMGSZ, "processed": stats["processed"], "failed": stats["failed"],
                 "pending": len(pending), "last_id": stats["last_id"], "last_ms": stats["last_ms"],
-                "avg_ms": round(stats["total_ms"] / stats["processed"]) if stats["processed"] else None,
+                "avg_ms": round(stats["total_ms"] / stats["processed"]) if stats["processed"] else None, "live": live,
                 "job": dict(job.summary) if job is not None else last_job})
         if args.once and not did and job is None and (not todo or time.time() - started > ONCE_WAIT_SEC):
             return   # nothing left (sets that are too young to read are waited for a while)

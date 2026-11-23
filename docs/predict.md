@@ -42,7 +42,8 @@ ON_PREDICT_MODEL=overspray # overspray | poc | path
 ```
 - 워커는 **별도 launchd 서비스**입니다. 카메라 앱은 워커를 import하지 않고 기다리지도 않습니다. 워커가 느리거나 죽어도 수집은 그대로입니다.
 - **QR 값이 읽힌 세트만** 예측합니다(세트 ID가 QR 값으로 시작하는 것). QR이 안 읽힌 세트(ID가 촬영 시각뿐)는 데이터 수집만 하고 예측하지 않으며, Predict 목록에도 나오지 않습니다(예전에 예측된 결과가 남아 있어도 표시하지 않습니다).
-- 새 세트가 저장되면(파일이 1.5초 이상 지난 뒤) 워커가 **최신 세트부터** 5장을 검사합니다. 밀리면 `ON_PREDICT_MAX_BACKLOG`(100)개만 보고 **오래된 것은 건너뜁니다**. `ON_PREDICT_MAX_AGE_HOURS`(24시간)보다 오래된 세트도 하지 않습니다. 모두 하려면 `python -m backend.predict.worker --backfill`.
+- **새 세트 예측은 기본으로 꺼져 있습니다.** Predict 화면 왼쪽의 **Predict new sets**를 체크해야 라인에서 저장되는 세트를 예측합니다(아래 "새 세트 예측 켜고 끄기"). 꺼져 있으면 워커는 **Predict a period**로 요청한 기간만 예측합니다.
+- 켜져 있을 때, 새 세트가 저장되면(파일이 1.5초 이상 지난 뒤) 워커가 **최신 세트부터** 5장을 검사합니다. 밀리면 `ON_PREDICT_MAX_BACKLOG`(100)개만 보고 **오래된 것은 건너뜁니다**. `ON_PREDICT_MAX_AGE_HOURS`(24시간)보다 오래된 세트도 하지 않습니다. 모두 하려면 `python -m backend.predict.worker --backfill`.
 - Mac Mini에서 측정한 값(Apple GPU=mps, 1280px): 사진 1장 약 98ms, **세트 약 0.5초**, CPU 코어 0.07개분, 메모리 약 0.8GB. 신발 간격(약 10초)의 5%입니다. CPU로 돌리면 세트당 2~3초에 코어 2~3개분이라 `auto`가 mps를 고릅니다.
 
 ## 설치 (Mac)
@@ -59,6 +60,7 @@ git pull
 - 웹 화면(앱)은 재시작할 필요가 없습니다. 단, **새 메뉴(Predict) 자체는 앱을 한 번 재시작해야** 나타납니다(`./bin/install_launchd.sh restart`).
 - 워커는 밤 정지(quiet hours)에도 계속 돕니다. 일이 없으면 CPU를 쓰지 않습니다. 모델은 메모리에 약 1GB 올라가 있습니다.
 - `.venv`에 패키지가 없거나 모델 파일이 없으면 `predict-install`이 이유를 말하고 멈춥니다.
+- **`predict-install` 직후에는 새 세트를 예측하지 않습니다**(Predict new sets 기본 꺼짐). 라인 세트를 예측하려면 Predict 화면에서 체크하세요. 체크 상태는 파일에 남아서 워커나 Mac을 재시작해도 유지됩니다.
 
 ## Predict 메뉴
 - 왼쪽 목록: 세트별 시각, QR 값, 검출된 클래스, **DEFECT / OK / ERROR** 표시. 위쪽에서 All / Defect / OK / Error, 날짜, 클래스로 거릅니다(각 개수도 보임).
@@ -79,6 +81,14 @@ git pull
   - **주의**: 모든 신발에 똑같이 있는 진짜 결함(예: 지그나 공정 때문에 매번 같은 곳)도 반복으로 빠집니다. 라벨링을 위한 후보를 줄이는 용도로 쓰고, 반복으로 빠진 박스도 처음에 한 번은 훑어보세요. 시험(Mac 결과 173세트): 검출 1,322개 중 957개(72%)가 빠지고 365개만 남았으며 DEFECT 세트는 173 → 144개였습니다. 남은 검출도 대부분 신발의 글씨나 무늬라서, 판정으로 쓰기에는 여전히 부족하고 **라벨링 후보 정리용**입니다.
 - **DEFECT 기준**: `ON_PREDICT_OK_CLASSES`에 없는 클래스가 하나라도 검출되면 불량입니다. `poc` 모델에 "좋은 인쇄" 클래스(`Print4_poor_print_good`)가 있어서 기본으로 OK 클래스에 넣었습니다. `overspray` 모델에는 그 클래스가 없으므로 영향이 없습니다(Overspray 박스가 하나라도 있으면 DEFECT).
 - ERROR: 사진을 하나도 읽지 못했거나 추론이 실패한 세트(다시 시도하지 않음). 일부 사진만 빠진 세트는 나머지로 판정하고 카메라 칸에 이유가 나옵니다.
+
+## 새 세트 예측 켜고 끄기 (Predict new sets)
+- Predict 화면 왼쪽의 **Predict new sets** 체크박스. **기본은 꺼짐**입니다.
+- 켜면: 라인에서 저장되는 세트(QR 값이 있는 것)를 워커가 바로 예측합니다(위 "수집에 미치는 영향이 없게 한 구조"의 규칙대로).
+- 끄면: 새 세트는 예측하지 않고, **Predict a period**로 요청한 기간만 예측합니다. 위쪽 `worker:` 칩에 `new sets off`가 나옵니다.
+- 워커가 매 라운드(약 1초) 읽으므로 **재시작 없이** 바로 바뀝니다. 꺼져 있던 동안 저장된 세트는, 켤 때 최근 24시간(`ON_PREDICT_MAX_AGE_HOURS`) 안의 것이면 그때 예측합니다. 더 오래된 것은 Predict a period로 하세요.
+- 명령줄의 `--once`, `--backfill`은 체크와 상관없이 대기 세트를 예측합니다.
+- 설정 파일: `captures/.predict/.live.json`(`{"on": true}`; 없으면 꺼짐). API: `POST /api/predict/live` 본문 `{"on": true | false}`. `GET /api/predict` 응답의 `live`, 워커 상태(`.status.json`)의 `live`.
 
 ## 기간 예측 (Predict a period)
 워커는 평소 최근 24시간(`ON_PREDICT_MAX_AGE_HOURS`) 세트만 예측합니다. 그보다 오래된 세트나, 모델을 바꾼 뒤 이전 결과를 다시 예측하려면 화면 왼쪽의 **Predict a period**를 씁니다.

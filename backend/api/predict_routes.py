@@ -68,6 +68,17 @@ class PredictRoutes:
             broadcast({"key": "predict_changed"})
         self._send_json({"cancelled": cancelled})
 
+    def _set_live(self, data):
+        """POST /api/predict/live. Body: {"on": true | false}: the worker predicts the new sets the line saves (or not).
+        -> {"live"}"""
+        on = data.get("on")
+        if not isinstance(on, bool):
+            self.send_error(400, "on: true or false")
+            return
+        predictions.write_live(on)
+        broadcast({"key": "predict_changed"})
+        self._send_json({"live": on})
+
     def _rebuild_zones(self):
         """POST /api/predict/zones/rebuild: make the shoe zones again from the latest sets (in the background)."""
         started = predictions.index.rebuild_zones()
@@ -168,7 +179,8 @@ class PredictRoutes:
             corrected = query.get("corrected", ["1" if PREDICT_CORRECT else "0"])[0] != "0"
             rows, totals = predictions.index.page(flt if flt in FILTERS else "all", query.get("cls", [""])[0] or None,
                                                   query.get("date", [""])[0] or None, limit, offset, corrected)
-            self._send_json({"rows": rows, "totals": totals, "status": predictions.index.status(), "job": predictions.read_job()})
+            self._send_json({"rows": rows, "totals": totals, "status": predictions.index.status(), "job": predictions.read_job(),
+                             "live": predictions.read_live()})
             return
         if not ID_RE.match(rest):
             self.send_error(404)

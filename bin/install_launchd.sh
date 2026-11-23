@@ -308,6 +308,7 @@ case "${1:-}" in
         echo "Installed and started: $PREDICT_LABEL (defect detection worker, low priority, separate from the app)"
         echo "Log:  $PREDICT_LOG_FILE   (./bin/install_launchd.sh logs predict)   Results: the Predict page of the screen"
         echo "It keeps running at night (idle, it costs nothing). Remove it: ./bin/install_launchd.sh predict-uninstall"
+        echo "The new sets of the line are predicted only while 'Predict new sets' is ticked on the Predict page (off by default)."
         ;;
     predict-uninstall)
         "$LAUNCHCTL" bootout "$DOMAIN/$PREDICT_LABEL" 2>/dev/null || true

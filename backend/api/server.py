@@ -192,6 +192,8 @@ class ControlHandler(ResponsesMixin, StateRoutes, SampleRoutes, ExportRoutes, Pr
             self._start_job(data)
         elif path == "/api/predict/job/cancel":
             self._cancel_job(data)
+        elif path == "/api/predict/live":
+            self._set_live(data)
         elif path == "/api/imagelab/process":
             self._imagelab_process(data)
         elif path == "/api/imagelab/upload":

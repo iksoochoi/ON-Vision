@@ -91,7 +91,8 @@ function renderWorker(status) {
     return;
   }
   chip.className = 'chip ok';
-  chip.textContent = `worker: ${status.device} · ${status.avg_ms == null ? '-' : status.avg_ms} ms/set · ${status.pending} waiting`;
+  chip.textContent = `worker: ${status.device} · ${status.avg_ms == null ? '-' : status.avg_ms} ms/set · ` +
+    (status.live === false ? 'new sets off' : `${status.pending} waiting`);
   chip.title = `model ${status.model}, ${status.imgsz}px, ${status.processed} predicted, ${status.failed} failed`;
 }
 
@@ -159,6 +160,20 @@ async function startJob() {
   } catch (e) {
     fail('Could not start: ' + e.message);
   }
+}
+
+// Predict new sets: the switch (captures/.predict/.live.json) the worker reads every round. Off by default.
+async function setLive() {
+  const box = $('liveOn');
+  box.disabled = true;
+  try {
+    const r = await fetch('/api/predict/live', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: box.checked }) });
+    if (!r.ok) throw new Error(r.status);
+  } catch (e) {
+    box.checked = !box.checked;   // as it was
+  }
+  box.disabled = false;
+  await load(false);
 }
 
 async function cancelJob(id, button) {
@@ -264,6 +279,7 @@ async function load(append) {
     lastStatus = data.status;
     renderWorker(data.status);
     renderJob(data.job, data.status);
+    $('liveOn').checked = !!data.live;
     renderFilters();
     renderRows();
     if (!selected && !append && rows.length) showSet(rows[0].id);   // the newest set is shown at first
@@ -401,6 +417,7 @@ $('detail').addEventListener('click', (e) => {
   if (d && selected) deleteResults({ ids: [selected] }, 'Delete the result of this set? The set and its pictures stay.', d);
 });
 $('jobStart').onclick = startJob;
+$('liveOn').onchange = setLive;
 $('jobMsg').addEventListener('click', (e) => {
   const b = e.target.closest('#jobCancel');
   if (b) cancelJob(b.dataset.id, b);
