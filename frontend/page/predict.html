@@ -74,6 +74,20 @@
           </div>
           <div class="hint" id="jobMsg" hidden></div>
         </div>
+        <details class="jobbox calibbox" id="calibBox">
+          <summary class="jobtitle" title="The ruler of the bonding gap when the QR label is not on the shoe: the cam plate on the last. Calibrate again here after a side camera was moved.">Cam plate (bonding gap ruler)</summary>
+          <div class="hint" id="calibInfo">Loading…</div>
+          <div class="row jobbar">
+            <input type="date" id="calibFrom" title="First day of the pictures to calibrate with (after the camera was moved)" aria-label="First day">
+            <span>~</span>
+            <input type="date" id="calibTo" title="Last day (included)" aria-label="Last day">
+          </div>
+          <div class="row jobbar">
+            <button type="button" id="calibStart" class="secondary" title="The worker finds the cam plate in up to 30 sets of these days, cuts a new template and estimates K. Nothing changes until you press Apply.">Calibrate</button>
+            <button type="button" id="calibDefault" class="secondary" hidden title="Stop using the site calibration: back to the one of the repo (backend/models/bonding_gap)">Use default</button>
+          </div>
+          <div class="hint" id="calibMsg" hidden></div>
+        </details>
         <label class="corr" title="Show the pictures as the defect model saw them: the shoe cut out by the segmentation model, the background flat grey. Only for sets predicted with the background removal."><input type="checkbox" id="showCut"> Show background removed</label>
         <!-- Apply corrections is hidden (the page then follows ON_PREDICT_CORRECT). Uncomment the next line to show it.
         <label class="corr" title="Detections that recur at the same place in many sets, or lie off the shoe, do not count for the verdict"><input type="checkbox" id="corr"> Apply corrections <small id="corrInfo"></small></label>

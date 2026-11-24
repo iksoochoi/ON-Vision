@@ -18,12 +18,14 @@ ON_PREDICT_MODEL=overspray # overspray | poc | path
 - **주의: 모델을 바꿔도 이미 만든 결과(`captures/.predict/`)는 그대로 남습니다.** 이전 모델 결과를 새 모델로 바꾸려면 Predict 화면의 **Predict a period**에서 기간을 고르고 **again**을 켜서 예측하세요(아래 "기간 예측").
 - **Overspray 모델 주의**: 학습 사진에 top 뷰가 없고(front/left/right/back만), 불량 예시는 ON1WH뿐이며 back 불량은 7장뿐입니다. top 사진과 back 사진의 박스는 특히 조심해서 보세요. 점수 0.5를 넘는 박스가 거의 없으므로 `ON_PREDICT_CONF`는 0.25 근처로 두세요(0.4면 불량을 대부분 놓침).
 
-## 불량 검출 과정 (신발 배경 제거 → 불량 모델)
+## 불량 검출 과정 (신발 배경 제거 → 불량 모델 → Bonding gap)
 ```
 1. 데이터 수집      카메라 5대에서 사진 1장씩 저장 (카메라 앱)
 2. 신발 분할        shoe segmentation 모델이 신발만 윤곽을 땁니다 (신발 틀·홀더·벨트 제외),
                     윤곽 밖은 균일한 회색(114)으로 바꾼 "배경 제거 사진"을 만듭니다
 3. 불량 검출        배경 제거 사진에 불량 모델(ON_PREDICT_MODEL)을 적용합니다
+4. Bonding gap      left·right 원본 사진에서 스프레이 끝 ~ 미드솔 턱 간격을 잽니다 (QC viewer와 같은 측정)
+5. 판정             모델 또는 bonding gap 중 하나라도 불량이면 DEFECT
 ```
 - 분할 모델: `backend/models/shoe_segmentation/best.pt`(YOLO11n-seg, 클래스 `shoe` 1개, 5대 카메라를 한 모델로 학습. 버전 3(2026-11-09): 암막 환경 2026-11-02 사진 1285장 + 이전 2026-10-24 사진 1292장, 두 환경 검증 IoU 모두 0.980). 정보는 같은 폴더의 `summary.txt`. (그 폴더의 `yolo11n-seg.pt`는 학습 전 범용 모델이라 쓰지 않습니다.)
 - 마스크는 `ON_PREDICT_SEG_GROW`(기본 사진 긴 변의 0.2%, 4000px 사진에서 약 8px)만큼 넓혀서 신발 가장자리를 지키고, 신발을 못 찾은 사진(`seg.found=false`)은 **원래 사진 그대로** 불량 검출합니다.
@@ -31,6 +33,42 @@ ON_PREDICT_MODEL=overspray # overspray | poc | path
 - Predict 화면의 **Show background removed** 를 켜면 사진을 불량 모델이 본 모습(배경 제거)으로 바꿔 보여 줍니다. 사진 파일을 따로 저장하지 않고 저장된 윤곽으로 그때그때 만듭니다(`/api/predict/<id>/cutout`).
 - 끄려면 `ON_PREDICT_SEG=0`(저장된 그대로 검사). 모델 파일이 없으면 워커가 경고를 남기고 같은 방식으로 동작합니다.
 - 알아둘 점: `overspray` 모델은 이 배경 제거 사진과 같은 방식으로 만든 사진으로 학습했습니다(`train/defect_detection/make_cutout.py`). `poc` 모델은 배경이 있는 사진으로 학습했습니다. 배경 제거 사진에서는 배경에서 생기던 박스가 크게 줄지만(시험 3세트: 세트당 22~24개 → 3~7개), 실제 불량을 놓치는지는 재학습 전까지 확인이 필요합니다. 비교는 `run_folder.py`로 `--seg` 유무를 나눠 돌려 볼 수 있습니다.
+
+## Bonding gap (Sidewall bonding margin)
+- 정의: 스프레이가 칠해진 끝과 미드솔 턱(ledge) 사이에 접착되지 않은 흰 띠의 폭. QC 기준서 "Sidewall Bonding Margin"(최대 4 mm)과 같은 것이고, QC viewer에서 만든 측정을 **그대로** 씁니다(`backend/predict/bonding_gap.py`, 2026-11-24에 `train/qc_sheet`에서 옮김. 측정 내용은 바꾸지 않았고, 같은 세트에서 QC viewer와 값이 같은 것을 확인함).
+- 순서: 불량 모델 **다음**에 잽니다. 두 검사는 서로의 결과를 쓰지 않지만, 모델 결과가 먼저 저장되므로 gap 측정이 느리거나 실패해도 Overspray 판정은 남습니다.
+- 측정: left·right 카메라의 **원본 사진**(배경 제거 전). 자는 신발 갑피의 QR 라벨(13 mm)이 그 카메라에 보이면 QR, 아니면 신발 틀 위 캠플레이트 크기(`backend/models/bonding_gap/`의 템플릿과 보정값 `plate_calib.json`). QR 옆(또는 신발 박스 안)에서 두 선을 찾아 신발 옆면 전체를 따라갑니다.
+- 판정(카메라별): 간격이 `ON_PREDICT_GAP_LIMIT_MM`(5 mm)를 넘는 구간이 신발 길이 방향으로 `ON_PREDICT_GAP_OVER_MM`(30 mm) 이상이면 **BONDING GAP**. 세트는 left·right 중 하나라도 그러면 불량입니다. 기준서는 4 mm이지만, 4 mm로 하면 정상 신발도 불량이 많이 나와서(QC 시트 OK 42세트 중 7개) QC viewer와 같은 5 mm / 30 mm를 기본으로 했습니다(2026-11-19, 631세트 분석).
+- 화면:
+  - left·right 사진에 스프레이 끝(빨강), 미드솔 턱(초록), 기준 초과 구간(빨간 반투명), 최대 위치(노랑) 선이 그려집니다. 카메라 칸 제목에 `gap 6.8 mm, over 199 mm`.
+  - 세트 화면의 **Bonding gap** 표: 카메라별 판정, 측정 상태(`ok` / `unsure` 경계를 찾은 길이가 짧음 / `fail`·`none` 못 잼, 이유), 최대·중앙값, 기준 초과 길이, 따라간 길이, 자(QR / cam plate).
+  - 목록에서는 클래스 `Bonding_gap`(세트당 1개)으로 보이고 클래스 필터로 거를 수 있습니다. 보정(corrections)은 모델 박스에만 적용되고 gap에는 적용되지 않습니다.
+  - Save: 저장 사진에 같은 선이 그려지고, `result.json`에 `bonding_gap`(세트)과 카메라별 `views.<카메라>.bonding_gap`이 들어갑니다.
+- 결과 JSON: `gap` = `{"algo", "limit_mm", "over_min_mm", "ms", "defect", "views": {"left", "right"}}`, 모델만의 판정은 `model_defect`. 이 기능 전에 만든 결과에는 `gap`이 없습니다. gap까지 보려면 **Predict a period**에서 again을 켜고 다시 예측하세요.
+- 속도: 세트(양쪽)당 약 1~2.5초 추가(이 PC 측정; CPU 사용, OpenCV 스레드는 `ON_PREDICT_THREADS`로 제한). 신발 간격 약 10초 안에 들어갑니다.
+- 주의:
+  - 캠플레이트 보정값은 **지금 카메라 위치** 기준입니다. 현장에서 left/right 카메라를 옮기면 아래 "캠플레이트 보정"으로 다시 보정하세요.
+  - 앞코·뒤꿈치는 카메라에서 멀어지고 휘어서 값이 덜 정확합니다(판정은 최대값이 아니라 초과 길이로).
+  - 측정은 측면(left/right) 사진에 보이는 곳만입니다. 다른 위치의 gap 불량은 놓칠 수 있습니다(QC 시트 Bonding_gap 중 일부는 3.5~4.9 mm로 측정됨).
+  - 새 색의 갑피가 나오면 경계가 잘 보이는지 확인이 필요합니다(회색 ON1WH, 연두 ON1GR까지 확인).
+  - 끄려면 `ON_PREDICT_GAP=0`(워커 재시작).
+
+### 캠플레이트 보정 (Predict 화면 왼쪽 "Cam plate", 수동)
+- 왜: QR 라벨이 신발에 없으면(2026-11-14부터 대부분) gap의 자는 신발 틀 위 캠플레이트입니다. 카메라별 템플릿(판 모양)과 K(판 크기 → 신발 옆면 mm/px, `mm/px = K / s`)가 필요합니다. 기본값은 저장소의 `backend/models/bonding_gap/`(PC에서 갑피에 QR이 붙은 세트로 만든 정확한 K).
+- 언제: left/right 카메라를 옮긴 뒤. 칸을 열면 최근 100개 결과에서 **판을 찾은 비율과 매칭 점수**가 보입니다. 찾은 비율이 80% 아래로 떨어지면(노란색) 또는 점수가 예전보다 낮아지면 카메라가 움직인 것입니다.
+- 방법: 카메라를 옮긴 **뒤의 날짜**를 고르고 **Calibrate** → 워커가 새 세트와 기간 예측이 없을 때 그 기간 세트 최대 30개(QR 값이 있는 세트)의 left/right 사진으로 계산합니다(이 PC 약 95초). 결과(후보)가 칸에 나오면 확인하고 **Apply**(또는 **Discard**). Apply 전에는 아무것도 바뀌지 않습니다.
+  1. 지금 쓰는 템플릿으로 사진마다 판을 찾음
+  2. 판을 가장 잘 찾은 사진(기울기가 작은 것)에서 새 템플릿을 자름(판 위 QR 라벨은 지움)
+  3. **추정 K**: 새 템플릿으로 다시 찾아서, 사진마다 예전 방식과 같은 mm/px가 되는 K의 중앙값 → 스케일은 예전 값을 이어감(판과 신발 옆면의 거리 비율이 그대로라고 가정)
+  4. 후보 화면: 카메라별 K 변화, 판을 찾은 수(전/후), 예전 스케일과의 차이(중앙값, p90), 갑피 QR 사진이 있으면 QR과의 차이, 템플릿 비교 그림
+- 적용하면 워커가 다음 라운드에 바로 씁니다(재시작 불필요). 결과마다 어떤 보정으로 쟀는지 `gap.calib`(`site`/`default`, 시각)에 남고, 세트 화면 Bonding gap 표 아래에 보입니다. 이미 만든 결과는 그대로라, 다시 재려면 Predict a period(again).
+- **Use default**: 현장 보정을 그만 쓰고 저장소 기본값으로 돌아갑니다(현장 보정은 history에 보관).
+- 저장 위치: `captures/.predict/bonding_gap/` — `active/`(사용 중), `candidate/`(후보), `history/<시각>/`(교체된 것). git이 관리하지 않아 `git pull`과 충돌하지 않습니다. 요청 파일 `captures/.predict/.calib.json`, 진행 상황은 `.status.json`의 `calib`.
+- 시험(2026-11-14 현장 40세트, 이 PC): 판 30/30 찾음, 새 템플릿의 스케일이 예전과 중앙값 0.5%(p90 1.0~1.6%) 차이. 사이트 보정으로 다시 잰 gap 최대값은 기본 보정 대비 중앙값 0.0%, p90 1.8%, 78장 중 판정 바뀜 1(기준 근처).
+- 한계(주의):
+  - **추정 K는 스케일을 새로 재는 것이 아니라 이어 가는 것**입니다. 카메라 각도·거리가 바뀌어 판과 신발 옆면의 비율이 달라졌다면 그 차이는 잡지 못합니다. 정확한 K는 갑피 옆면에 QR(같은 값의 라벨 사본)을 붙인 세트가 필요합니다(나중에 추가 예정, 지금은 PC의 `train/qc_sheet/plate_calib.py`).
+  - 카메라를 너무 많이 옮겨 **지금 템플릿으로 판을 5장 이상 못 찾으면** 그 카메라는 보정이 안 되고(이유가 표시됨) 예전 값을 유지합니다. 이 경우 PC에서 기준 사진과 판 위치(`REF`)를 정해 `plate_calib.py`로 보정해야 합니다.
+  - API: `GET /api/predict/calib`, `GET /api/predict/calib/template?which=in_use|candidate|default&view=left`, `POST /api/predict/calib` `{"from","to"}`, `POST /api/predict/calib/cancel|apply|discard|default`.
 
 ## 수집에 미치는 영향이 없게 한 구조
 ```
@@ -147,6 +185,9 @@ Predict 화면에서 **불량 탐지 결과만** 지웁니다. 세트와 사진�
 | `ON_PREDICT_SEG_IMGSZ` | `960` | 분할 모델 입력 크기(학습 때와 같음) |
 | `ON_PREDICT_SEG_CONF` | `0.5` | 신발로 인정하는 최소 점수 |
 | `ON_PREDICT_SEG_GROW` | `0.002` | 윤곽을 사진 긴 변의 이 비율만큼 넓힘(0.002 = 4000px에서 8px) |
+| `ON_PREDICT_GAP` | `1` | 모델 다음에 bonding gap 측정 (0 = 안 함) |
+| `ON_PREDICT_GAP_LIMIT_MM` | `5` | 이 간격(mm)을 넘으면 기준 초과 |
+| `ON_PREDICT_GAP_OVER_MM` | `30` | 기준 초과가 신발 길이 방향으로 이만큼(mm) 이상이면 BONDING GAP |
 | `ON_PREDICT_THREADS` | `2` | torch CPU 스레드 수 |
 | `ON_PREDICT_MAX_AGE_HOURS` | `24` | 이보다 오래된 세트는 안 함(0 = 제한 없음) |
 | `ON_PREDICT_MAX_BACKLOG` | `100` | 밀리면 최신 이 개수만, 오래된 것은 건너뜀 |

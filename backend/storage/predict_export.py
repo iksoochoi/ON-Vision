@@ -55,7 +55,8 @@ def _set_record(sample_id, corrected, originals, folder, ok_classes, max_side):
                          "on_shoe": c.get("on_shoe"), "on_shoe_by": c.get("by"), "inside_shoe": c.get("inside"), "recurring": c.get("recurring"),
                          "counts": c.get("counted"), "left_out": c.get("reasons") or [],
                          "class_map50": (metrics.get(d["class"]) or {}).get("map50"), "ctx": c})
-        annotated = draw(image, dets, corrected, ok_classes, max_side)
+        gap = ((result.get("gap") or {}).get("views") or {}).get(role)
+        annotated = draw(image, dets, corrected, ok_classes, max_side, gap)
         write_jpg(out_dir / f"{role}.jpg", annotated)
         if originals:
             (out_dir / "original").mkdir(exist_ok=True)
@@ -64,6 +65,9 @@ def _set_record(sample_id, corrected, originals, folder, ok_classes, max_side):
             d.pop("ctx", None)
         views[role] = {"image": f"{role}.jpg", "image_size": [annotated.shape[1], annotated.shape[0]], "original_size": [w, h],
                        "sharpness": vc.get("sharpness"), "predict_ms": v.get("ms"), "detections": dets}
+        if gap:
+            views[role]["bonding_gap"] = {k: gap.get(k) for k in ("status", "defect", "max_mm", "median_mm", "over_mm", "span_mm",
+                                                                    "scale", "mm_per_px", "why", "check") if gap.get(k) is not None}
     verdict = ctx.get("verdict") or {}
     summary = {"id": sample_id, "shoe_id": result.get("shoe_id"), "timestamp": result.get("timestamp"),
                "verdict": {"shown": "corrected" if corrected else "raw", "raw_defect": verdict.get("raw"),
@@ -72,6 +76,10 @@ def _set_record(sample_id, corrected, originals, folder, ok_classes, max_side):
     doc = {**summary, "model": {"file": result.get("model") or PREDICT_MODEL_NAME, "device": result.get("device"), "imgsz": result.get("imgsz"),
                                 "conf": result.get("conf"), "predicted_at": result.get("predicted_at")},
            "views": views, "missing_pictures": missing, "ok_classes": list(ok_classes)}
+    if result.get("gap"):
+        g = result["gap"]
+        doc["bonding_gap"] = {"defect": g.get("defect"), "limit_mm": g.get("limit_mm"), "over_min_mm": g.get("over_min_mm"),
+                              "model_defect": result.get("model_defect"), **({"error": g["error"]} if g.get("error") else {})}
     (out_dir / "result.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
     return summary, None
 

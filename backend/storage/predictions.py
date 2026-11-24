@@ -9,9 +9,14 @@
                       shoe was segmented, else the one of the camera app, when the set has one),
                       "seg": {"found", "conf", "count", "area", "ms", "polygon": [[x, y] ...] fractions} (the outline of the shoe),
                       "detections": [{"class", "conf", "box": [x0, y0, x1, y1] as fractions of the picture}]}},
-     "errors": {role: reason}, "error": reason (the whole set failed)}
-"defect" there is the RAW verdict of the model (any detection of a class that is not an ok class). The Predict page
-corrects it (see Analysis below) and shows the corrected verdict.
+     "errors": {role: reason}, "error": reason (the whole set failed),
+     "gap": {"algo", "limit_mm", "over_min_mm", "ms", "defect", "views": {"left" | "right": the bonding_gap result
+             ("status" ok | unsure | fail | none, "max_mm", "median_mm", "over_mm", "upper" / "midsole": the two lines as
+             [[x, y] fractions], "over": the parts over the limit, "why" ...)}, "error"} (the bonding gap, measured after the
+             model: backend/predict/bonding_gap.py), "model_defect": the model's verdict alone (sets with a "gap")}
+"defect" there is the RAW verdict: the model (any detection of a class that is not an ok class) or the bonding gap. The
+Predict page corrects the model's part (see Analysis below; the gap is not corrected) and shows the corrected verdict.
+A bonding gap defect is listed as the class GAP_CLASS (one per set) next to the classes of the model.
 
 The worker also keeps captures/.predict/.status.json (is it alive, how fast, how many waiting).
 The index keeps a short summary of every result in memory (like the shoe index), so a page never reads the disk per
@@ -46,6 +51,7 @@ JOB_NAME = ".job.json"
 # The switch of the Predict page "Predict new sets": {"on": true | false}. Off (and no file) = the worker predicts only the
 # periods asked for, not the sets the line saves. The worker reads it every round.
 LIVE_NAME = ".live.json"
+CALIB_REQUEST = ".calib.json"   # a cam plate calibration asked for (storage/gap_calib.py)
 STATUS_FRESH_SEC = 20.0   # the worker counts as alive when its status is this young
 CHUNK = 512               # rows of the overlap matrix worked out at a time
 
@@ -276,14 +282,23 @@ def _recurrence(dets, thr):
     return out
 
 
+GAP_CLASS = "Bonding_gap"   # how a bonding gap defect is listed among the classes of the model
+
+
+def gap_views(result):
+    """The cameras whose bonding gap is a defect (empty when not measured)."""
+    return sorted(v for v, r in ((result.get("gap") or {}).get("views") or {}).items() if r.get("defect"))
+
+
 def summarise(result, dets, ok_classes=()):
     """The short form the lists use (raw verdict); `dets` as made by PredictIndex._detections."""
-    classes = result.get("classes") or {}
+    gap = gap_views(result)
+    classes = dict(result.get("classes") or {}, **({GAP_CLASS: 1} if gap else {}))
     best = max((d["conf"] for d in dets if d["cls"] not in ok_classes), default=None)
     return {"id": result["id"], "tk": time_key(result["id"]), "time": result.get("timestamp") or "",
             "shoe_id": result.get("shoe_id"), "defect": result.get("defect"), "count": result.get("count", 0),
-            "classes": classes, "best": best, "ms": result.get("ms"), "error": result.get("error"),
-            "defect_views": sorted({d["role"] for d in dets if d["cls"] not in ok_classes})}
+            "classes": classes, "best": best, "ms": result.get("ms"), "error": result.get("error"), "gap_views": gap,
+            "defect_views": sorted({d["role"] for d in dets if d["cls"] not in ok_classes} | set(gap))}
 
 
 class PredictIndex:
@@ -328,7 +343,7 @@ class PredictIndex:
             except OSError:
                 entries = []
             for e in entries:
-                if not e.name.endswith(".json") or e.name in (STATUS_NAME, JOB_NAME, LIVE_NAME):
+                if not e.name.endswith(".json") or e.name in (STATUS_NAME, JOB_NAME, LIVE_NAME, CALIB_REQUEST):
                     continue
                 sid = e.name[:-5]
                 if not has_qr_prefix(sid):   # sets without a QR value are not part of Predict (a result of an earlier run is not listed)
@@ -352,7 +367,7 @@ class PredictIndex:
                 del self._mtime[sid]
                 changed = True
             status = read_status()
-            if self._status is None or any(status.get(k) != self._status.get(k) for k in ("alive", "processed", "pending", "failed", "job", "live")):
+            if self._status is None or any(status.get(k) != self._status.get(k) for k in ("alive", "processed", "pending", "failed", "job", "live", "calib")):
                 changed = changed or self._status is not None
                 self._status = status
             if changed:
@@ -421,10 +436,13 @@ class PredictIndex:
                 classes = {}
                 for d in counted:
                     classes[d["cls"]] = classes.get(d["cls"], 0) + 1
+                gap = s.get("gap_views") or []   # the bonding gap is not corrected
+                if gap:
+                    classes[GAP_CLASS] = 1
                 undecided = s["error"] or s["defect"] is None
-                result[sid] = {"flags": flags, "defect": None if undecided else bool(counted), "count": len(counted),
+                result[sid] = {"flags": flags, "defect": None if undecided else bool(counted or gap), "count": len(counted),
                                "classes": classes, "best": max((d["conf"] for d in counted), default=None),
-                               "defect_views": sorted({d["role"] for d in counted})}
+                               "defect_views": sorted({d["role"] for d in counted} | set(gap))}
             self._analysis = (self.version, result)
             return result
 

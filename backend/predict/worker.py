@@ -8,7 +8,9 @@ It looks at captures/.sets/ for sets that have no result yet in captures/.predic
 shoe's QR value was read: a set without one is only collected, never predicted), waits until a
 set is complete, predicts its pictures (one per camera) and writes captures/.predict/<id>.json. Every picture goes
 through two models: the shoe segmentation (backend/models/shoe_segmentation) cuts the shoe out and the background is replaced
-by flat grey, then the defect model looks at that picture (ON_PREDICT_SEG=0: at the picture as it was saved). The camera app never
+by flat grey, then the defect model looks at that picture (ON_PREDICT_SEG=0: at the picture as it was saved). After the
+model the bonding gap is measured on the left and right pictures as they were saved (bonding_gap.py, the QC viewer's
+measurement; ON_PREDICT_GAP=0: not): the set is a defect when the model or the gap says so. The camera app never
 waits for it and never imports it: a slow or crashed worker cannot disturb the data collection. It runs at a low
 priority, with few CPU threads (the GPU does the work on a Mac), and a backlog is never worked off at the cost of the
 new sets: only the newest ON_PREDICT_MAX_BACKLOG waiting sets within ON_PREDICT_MAX_AGE_HOURS are considered.
@@ -28,7 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))   # also runnable as a plain file
 
 from backend.core import config as C  # noqa: E402
-from backend.storage import cutout, predictions  # noqa: E402
+from backend.storage import cutout, gap_calib, predictions  # noqa: E402
 from backend.storage.paths import ID_RE, has_qr_prefix, image_path, primary_role, time_key  # noqa: E402
 
 POLL_SEC = 2.0
@@ -116,6 +118,26 @@ def current_job(job):
     return job, ended
 
 
+def current_calib(calib):
+    """The cam plate calibration to work on (asked for on the Predict page, see storage/gap_calib.py), like
+    current_job: (CalibJob or None, the summary of one that was cancelled or None)."""
+    from backend.predict.calib_job import CalibJob
+    req = gap_calib.read_request()
+    ended = None
+    if calib is not None and (req is None or req.get("id") != calib.req["id"]):
+        calib.summary.update(state="cancelled", finished=time.time())
+        ended, calib = calib.summary, None
+    if calib is None and req is not None:
+        try:
+            calib = CalibJob(req)
+        except (KeyError, TypeError, AttributeError, ValueError) as e:
+            log(f"cam plate calibration request not understood ({type(e).__name__}: {e}): removed")
+            gap_calib.clear_request(req.get("id"))
+            return None, ended
+        log(f"cam plate calibration {req['from']} ~ {req['to']}: {calib.summary['sets']} sets, left and right")
+    return calib, ended
+
+
 def load_set(stem):
     """The set file as a dict, or None when it is not (yet) readable / too young."""
     path = C.SETS_DIR / f"{stem}.json"
@@ -125,6 +147,52 @@ def load_set(stem):
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+def _clean(v):
+    """The gap result as JSON can hold it: NaN / inf (a line not found) as None."""
+    if isinstance(v, dict):
+        return {k: _clean(x) for k, x in v.items() if not str(k).startswith("_")}
+    if isinstance(v, (list, tuple)):
+        return [_clean(x) for x in v]
+    if isinstance(v, float) and (v != v or v in (float("inf"), float("-inf"))):
+        return None
+    return v
+
+
+def measure_gap(meta):
+    """The bonding gap of both sides (left, right cameras) of a set: {"algo", "limit_mm", "over_min_mm", "ms", "defect",
+    "views": {camera: bonding_gap result}}; "error" when the measurement itself broke."""
+    from backend.predict import bonding_gap
+    bonding_gap.OVER_MIN_MM = C.PREDICT_GAP_OVER_MM
+    sid, primary = meta["id"], primary_role(meta)
+    pics = {v: image_path(sid, v, primary=v == primary) for v in bonding_gap.SIDES}
+    started = time.perf_counter()
+    out = {"algo": bonding_gap.ALGO, "limit_mm": C.PREDICT_GAP_LIMIT_MM, "over_min_mm": C.PREDICT_GAP_OVER_MM,
+           "calib": list(gap_calib.in_use())}   # the cam plate calibration that measured it: ("site" | "default", version)
+    try:
+        sides = _clean(bonding_gap.measure_both(C.SETS_DIR / f"{sid}.json", C.PREDICT_GAP_LIMIT_MM, pics=pics))
+    except Exception as e:   # the model's result stays: only the gap is missing
+        log(f"{sid} bonding gap failed: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+        out.update(ms=round((time.perf_counter() - started) * 1000), defect=None, error=f"{type(e).__name__}: {e}")
+        return out
+    out.update(ms=round((time.perf_counter() - started) * 1000), views=sides,
+               defect=any(bool(r.get("defect")) for r in sides.values()))
+    return out
+
+
+def gap_text(gap):
+    """The gap for the log: "gap BONDING_GAP left 6.1 mm over 45 mm, right 3.2 mm (1840 ms)"."""
+    if gap.get("error"):
+        return f"gap ERROR {gap['error']}"
+    parts = []
+    for v, r in (gap.get("views") or {}).items():
+        if r.get("max_mm") is not None:
+            parts.append(f"{v} {r['max_mm']} mm" + (f" over {r['over_mm']:g} mm" if r.get("over_mm") else "")
+                         + ("" if r.get("status") == "ok" else f" ({r.get('status')})"))
+        else:
+            parts.append(f"{v} {r.get('status')}")
+    return f"gap {'BONDING_GAP ' if gap.get('defect') else ''}{', '.join(parts)} ({gap.get('ms')} ms)"
 
 
 def predict_set(meta, model, device, engine, cv2, seg=None):
@@ -182,6 +250,11 @@ def predict_set(meta, model, device, engine, cv2, seg=None):
         result["errors"] = errors
     if not views:
         result["error"] = "no picture could be read"
+    if C.PREDICT_GAP and views:   # after the model: a slow or failing measurement never loses the model's result
+        result["model_defect"] = result["defect"]
+        result["gap"] = measure_gap(meta)
+        result["defect"] = bool(result["defect"] or result["gap"].get("defect"))
+        result["ms"] = round((time.perf_counter() - started) * 1000)
     return result
 
 
@@ -201,6 +274,7 @@ def main():
     import torch
     from backend.predict import engine
     torch.set_num_threads(C.PREDICT_THREADS)
+    cv2.setNumThreads(C.PREDICT_THREADS)   # the bonding gap (OpenCV) too: the camera app keeps its cores
     C.PREDICT_DIR.mkdir(parents=True, exist_ok=True)
     model, device = engine.load(C.PREDICT_MODEL, C.PREDICT_DEVICE)
     engine.predict(model, device, np.zeros((64, 64, 3), np.uint8), C.PREDICT_IMGSZ, C.PREDICT_CONF)   # warm-up: the first prediction is slow
@@ -214,6 +288,7 @@ def main():
             seg = (seg_model, seg_device, segment)
     log("background removal: " + (f"ON, {SEG_NAME} on {seg[1]}, imgsz {C.PREDICT_SEG_IMGSZ}, conf {C.PREDICT_SEG_CONF}, "
                                  f"grow {C.PREDICT_SEG_GROW}" if seg else "off"))
+    log("bonding gap: " + (f"ON, a defect over {C.PREDICT_GAP_LIMIT_MM:g} mm along {C.PREDICT_GAP_OVER_MM:g} mm" if C.PREDICT_GAP else "off"))
     log(f"started: model {C.PREDICT_MODEL_NAME}, device {device}, imgsz {C.PREDICT_IMGSZ}, conf {C.PREDICT_CONF}, "
         f"threads {C.PREDICT_THREADS}, ok classes {C.PREDICT_OK_CLASSES}")
 
@@ -223,6 +298,8 @@ def main():
     limits = (0, 10 ** 9) if args.backfill else (C.PREDICT_MAX_AGE_HOURS, C.PREDICT_MAX_BACKLOG)
     first_pass = True
     job, last_job = None, None   # the period being predicted, and the one before it (shown on the page until a new one)
+    calib, last_calib = None, None   # the cam plate calibration being made, and the one before it
+    plate_stamp = None
     forced = args.once or args.backfill   # asked for on the command line: the page switch does not count
     live_was = None
 
@@ -241,11 +318,12 @@ def main():
         stats["last_id"], stats["last_ms"] = result["id"], result.get("ms")
         tag = "ERROR " + result["error"] if result.get("error") else (
             "DEFECT " + ", ".join(f"{k} x{v}" for k, v in result["classes"].items() if k not in C.PREDICT_OK_CLASSES)
-            if result["defect"] else "ok" + (f" ({', '.join(result['classes'])})" if result["classes"] else ""))
+            if result.get("model_defect", result["defect"]) else "ok" + (f" ({', '.join(result['classes'])})" if result["classes"] else ""))
         log(f"{tag_prefix}{result['id']}: {result['ms']} ms, {result['count']} detections, {tag}"
             + (f", shoe cut out in {len(result['seg']['background_removed'])} of {len(result['views'])} pictures" if result.get("seg") else "")
             + (f", pictures missing: {', '.join(result['errors'])}" if result.get("errors") else "")
-            + (f", segmentation failed: {', '.join(result['seg']['errors'])}" if (result.get("seg") or {}).get("errors") else ""))
+            + (f", segmentation failed: {', '.join(result['seg']['errors'])}" if (result.get("seg") or {}).get("errors") else "")
+            + (f", {gap_text(result['gap'])}" if result.get("gap") else ""))
         return result
 
     while True:
@@ -271,6 +349,11 @@ def main():
             did = True
             if time.time() - last_status >= STATUS_EVERY_SEC:
                 break   # look at the waiting list again (newer sets come first) and write the status
+        if C.PREDICT_GAP and gap_calib.stamp() != plate_stamp:   # the calibration in use changed on the page: no restart
+            from backend.predict import bonding_gap
+            plate_stamp = gap_calib.stamp()
+            bonding_gap.set_plate_dir(gap_calib.plate_dir())
+            log("bonding gap cam plate calibration: %s %s" % gap_calib.in_use())
         job, ended = current_job(job)
         if ended:
             last_job = ended
@@ -306,6 +389,31 @@ def main():
                     f"{round(s['finished'] - s['started'])} s")
                 last_job, job = s, None
                 last_status = 0.0   # say so at once
+        calib, ended = current_calib(calib) if C.PREDICT_GAP else (None, None)
+        if ended:
+            last_calib = ended
+            log(f"cam plate calibration {ended['from']} ~ {ended['to']} cancelled")
+            last_status = 0.0
+        busy = False
+        if calib is not None and not did and job is None:   # after the new sets and the period: a picture at a time
+            busy = True
+            while time.time() - loop_started < STATUS_EVERY_SEC:
+                try:
+                    more = calib.step()
+                except Exception as e:   # a broken calibration must not stop the worker
+                    log(f"cam plate calibration failed: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+                    calib.summary.update(state="failed", error=f"{type(e).__name__}: {e}", finished=time.time())
+                    gap_calib.clear_request(calib.req["id"])
+                    last_calib, calib = calib.summary, None
+                    last_status = 0.0
+                    break
+                if not more:
+                    s = calib.finish()
+                    log(f"cam plate calibration {s['from']} ~ {s['to']} {s['state']}: {s.get('errors') or 'candidate written'}, "
+                        f"{round(s['finished'] - s['started'])} s")
+                    last_calib, calib = s, None
+                    last_status = 0.0
+                    break
         now = time.time()
         if did or now - last_status >= STATUS_EVERY_SEC:
             last_status = now
@@ -316,10 +424,11 @@ def main():
                 "imgsz": C.PREDICT_IMGSZ, "processed": stats["processed"], "failed": stats["failed"],
                 "pending": len(pending), "last_id": stats["last_id"], "last_ms": stats["last_ms"],
                 "avg_ms": round(stats["total_ms"] / stats["processed"]) if stats["processed"] else None, "live": live,
-                "job": dict(job.summary) if job is not None else last_job})
-        if args.once and not did and job is None and (not todo or time.time() - started > ONCE_WAIT_SEC):
+                "job": dict(job.summary) if job is not None else last_job,
+                "calib": dict(calib.summary) if calib is not None else last_calib})
+        if args.once and not did and job is None and calib is None and (not todo or time.time() - started > ONCE_WAIT_SEC):
             return   # nothing left (sets that are too young to read are waited for a while)
-        if not did:
+        if not did and not busy:
             time.sleep(POLL_SEC)
 
 

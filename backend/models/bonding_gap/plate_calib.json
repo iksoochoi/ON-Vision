@@ -1,0 +1,34 @@
+{
+  "left": {
+    "template": "plate_left.png",
+    "ref": "ON1WH-B-B-10TLEQBBANK1W1B19588L_20261105_182101_508",
+    "ref_box": [
+      210,
+      330,
+      1545,
+      625
+    ],
+    "min_score": 0.6,
+    "k": 0.082346,
+    "sets": 110,
+    "used": 96,
+    "err_pct_median": 1.54,
+    "err_pct_p90": 2.87
+  },
+  "right": {
+    "template": "plate_right.png",
+    "ref": "ON1WH-B-B-10TREQBBAQK1W1B29962R_20261106_174909_618",
+    "ref_box": [
+      2300,
+      250,
+      3490,
+      570
+    ],
+    "min_score": 0.5,
+    "k": 0.09469,
+    "sets": 57,
+    "used": 30,
+    "err_pct_median": 1.25,
+    "err_pct_p90": 4.29
+  }
+}

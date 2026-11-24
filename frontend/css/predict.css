@@ -71,3 +71,23 @@
 .jobbar button { padding: 6px 12px; margin-left: auto; }
 .jobmsg-run { color: var(--accent); }
 .jobmsg button { padding: 2px 10px; margin-left: 6px; }
+
+/* the bonding gap lines over a side picture (fractions of the picture, like the boxes) */
+.pred-box .gap-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.gap-lines polyline, .gap-lines line { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.gap-lines .gap-upper { stroke: #ff4d4d; }
+.gap-lines .gap-mid { stroke: #3ddc84; }
+.gap-lines .gap-max { stroke: #ffd60a; stroke-width: 3; }
+.gap-lines .gap-over { fill: rgba(255, 60, 60, 0.45); stroke: none; }
+.gap-bad { color: #ff6b6b; font-weight: 600; }
+
+/* the cam plate calibration (bonding gap ruler) */
+.calibbox > summary { cursor: pointer; list-style: revert; }
+.calibbox .calib-k { font-family: var(--mono); }
+.calibbox .calib-warn { color: #ffb020; }
+.calibbox .calib-tpl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 6px 0; }
+.calibbox .calib-tpl figure { margin: 0; min-width: 0; }
+.calibbox .calib-tpl figcaption { overflow-wrap: anywhere; }
+.calibbox .calib-tpl img { width: 100%; height: auto; display: block; background: #070a08; border-radius: 4px; }
+.calibbox .calib-tpl figcaption { font-size: 11px; color: var(--dim); }
+.calibbox .calib-actions { display: flex; gap: 6px; margin-top: 6px; }

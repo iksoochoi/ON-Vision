@@ -8,7 +8,7 @@ import cv2
 
 from ..core.config import PREDICT_CORRECT, PREDICT_SEG_GROW
 from ..core.events import broadcast
-from ..storage import cutout, predictions
+from ..storage import cutout, gap_calib, predictions
 from ..storage.paths import ID_RE
 from ..storage.predict_export import export_predictions
 from ..storage.zones import zones
@@ -78,6 +78,75 @@ class PredictRoutes:
         predictions.write_live(on)
         broadcast({"key": "predict_changed"})
         self._send_json({"live": on})
+
+    # ---- the cam plate calibration of the bonding gap (storage/gap_calib.py): by hand, an estimated K ----
+    HEALTH_SETS = 100
+
+    def _get_calib(self):
+        """GET /api/predict/calib -> {"in_use": [site | default, version], "active", "default", "candidate" (summaries or
+        null), "request", "progress" (the worker's status "calib"), "health" (the cam plate in the latest results),
+        "history"}"""
+        rows, _ = predictions.index.page("all", None, None, self.HEALTH_SETS, 0, False)
+        results = [r for r in (predictions.read_result(x["id"]) for x in rows) if r]
+        active = gap_calib.read_calib(gap_calib.ACTIVE_DIR)
+        candidate = gap_calib.read_calib(gap_calib.CANDIDATE_DIR)
+        self._send_json({"in_use": list(gap_calib.in_use()),
+                         "active": gap_calib.summary(active) if active else None,
+                         "default": gap_calib.summary(gap_calib.read_calib(gap_calib.DEFAULT_DIR)),
+                         "candidate": gap_calib.summary(candidate) if candidate else None,
+                         "request": gap_calib.read_request(), "progress": predictions.read_status().get("calib"),
+                         "health": gap_calib.health(results), "health_sets": len(results), "history": gap_calib.history()[:10],
+                         "sets_used": gap_calib.CALIB_SETS})
+
+    def _send_template(self, query):
+        """GET /api/predict/calib/template?which=active|candidate|default|in_use&view=left|right -> the template (PNG)."""
+        path = gap_calib.template_path(query.get("which", [""])[0], query.get("view", [""])[0])
+        if path is None:
+            self.send_error(404)
+            return
+        data = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _start_calib(self, data):
+        """POST /api/predict/calib. Body: {"from", "to"} (yyyy-mm-dd): the worker makes a candidate from the pictures of
+        that period. One at a time (409)."""
+        try:
+            first, last = _period(data)
+        except ValueError as e:
+            self.send_error(400, str(e))
+            return
+        if gap_calib.read_request() is not None:
+            self.send_error(409, "a calibration is being made already: cancel it first")
+            return
+        n = len(predictions.period_ids(first, last))
+        if n < gap_calib.MIN_GOOD:
+            self.send_error(400, f"only {n} sets with a QR value in this period (at least {gap_calib.MIN_GOOD})")
+            return
+        req = {"id": uuid.uuid4().hex[:12], "from": first, "to": last, "requested_at": time.time()}
+        gap_calib.write_request(req)
+        broadcast({"key": "predict_changed"})
+        self._send_json({"request": req, "sets": min(n, gap_calib.CALIB_SETS), "in_period": n})
+
+    def _calib_action(self, action, data):
+        """POST /api/predict/calib/cancel | apply | discard | default -> {"done": true | false}"""
+        if action == "cancel":
+            done = gap_calib.clear_request(data.get("id") or None)
+        elif action == "apply":
+            done = gap_calib.apply_candidate()
+        elif action == "discard":
+            done = gap_calib.discard_candidate()
+        elif action == "default":
+            done = gap_calib.use_default()
+        else:
+            self.send_error(404)
+            return
+        broadcast({"key": "predict_changed"})
+        self._send_json({"done": done, "in_use": list(gap_calib.in_use())})
 
     def _rebuild_zones(self):
         """POST /api/predict/zones/rebuild: make the shoe zones again from the latest sets (in the background)."""
@@ -164,6 +233,12 @@ class PredictRoutes:
             return
         if rest == "job":
             self._get_job(query)
+            return
+        if rest == "calib":
+            self._get_calib()
+            return
+        if rest == "calib/template":
+            self._send_template(query)
             return
         if rest.endswith("/cutout"):
             self._send_cutout(rest[:-len("/cutout")], query)

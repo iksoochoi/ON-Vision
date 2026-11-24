@@ -387,6 +387,13 @@ PREDICT_SEG_IMGSZ = max(32, _env("ON_PREDICT_SEG_IMGSZ", 960, int))   # the segm
 PREDICT_SEG_CONF = max(0.01, min(0.99, _env("ON_PREDICT_SEG_CONF", 0.5, float)))   # minimum score of the shoe
 # the mask is widened by this part of the picture's long side (0.002 = 8 px of a 4000 px picture) so that the edge of the shoe is kept
 PREDICT_SEG_GROW = max(0.0, min(0.02, _env("ON_PREDICT_SEG_GROW", 0.002, float)))
+# After the defect model the bonding gap is measured on the left and right pictures (backend/predict/bonding_gap.py, the
+# measurement of the QC viewer): the white band between the end of the spray and the midsole ledge. A side is a defect
+# when the gap is over ON_PREDICT_GAP_LIMIT_MM along at least ON_PREDICT_GAP_OVER_MM of the shoe (the QC viewer's limits,
+# 2026-11-19: 4 mm cut through the normal shoes); a set is a defect when either side is. ON_PREDICT_GAP=0: not measured.
+PREDICT_GAP = _env("ON_PREDICT_GAP", 1, int) != 0
+PREDICT_GAP_LIMIT_MM = max(0.5, min(20.0, _env("ON_PREDICT_GAP_LIMIT_MM", 5.0, float)))
+PREDICT_GAP_OVER_MM = max(1.0, min(500.0, _env("ON_PREDICT_GAP_OVER_MM", 30.0, float)))
 # Detections of these classes mean "fine", not "defect" (the model has a class for a good print)
 # What the Predict page shows next to a detection (computed when a set is opened, nothing is predicted again):
 # a box counts as ON the shoe when this part of it lies inside the shoe region of its picture ...

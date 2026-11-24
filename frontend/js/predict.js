@@ -176,6 +176,88 @@ async function setLive() {
   await load(false);
 }
 
+// Cam plate (bonding gap ruler): the calibration in use, how well the plate is found in the latest results, and a
+// calibration made by hand (the worker estimates K from the pictures of the days picked; Apply makes it the one in use).
+const pct = (v) => (v == null ? '-' : `${v}%`);
+
+async function loadCalib() {
+  let d;
+  try {
+    d = await getJson('/api/predict/calib');
+  } catch (e) {
+    $('calibInfo').textContent = 'Could not load: ' + e.message;
+    return;
+  }
+  const site = d.in_use[0] === 'site';
+  const used = site ? d.active : d.default;
+  const health = ['left', 'right'].map((v) => {
+    const h = d.health[v] || {};
+    const bad = h.sets && h.found / h.sets < 0.8;
+    const k = used && used[v] ? ` · K <span class="calib-k">${used[v].k}</span>` : '';
+    return `<div><b>${v}</b>${k} · plate found <span class="${bad ? 'calib-warn' : ''}">${h.found || 0} / ${h.sets || 0}</span>` +
+      `${h.score == null ? '' : ` (match ${h.score.toFixed(2)})`}</div>`;
+  }).join('');
+  $('calibInfo').innerHTML = `In use: <b>${site ? `site calibration of ${esc((d.active.made_at || '').replace('T', ' '))}${d.active.estimated ? ' (estimated K)' : ''}` : 'default (repo)'}</b>` +
+    `<div>Latest ${d.health_sets} results:</div>${health}` +
+    '<div>Fewer found or a lower match than before: a camera moved, calibrate again.</div>';
+  $('calibDefault').hidden = !site;
+  $('calibStart').disabled = !!d.request;
+  const msg = $('calibMsg');
+  const p = d.progress;
+  let html = '';
+  if (d.request) {
+    const mine = p && p.id === d.request.id && p.state === 'running';
+    html = mine
+      ? `Calibrating ${esc(d.request.from)} ~ ${esc(d.request.to)}: ${p.phase === 'old' ? 'finding the plate' : 'checking the new template'} ${p.done} / ${p.total} pictures`
+      : (lastStatus && lastStatus.alive ? 'Waiting for the worker (after the new sets and a period)…' : 'Waiting: the worker is not running');
+    html += ' <button type="button" class="secondary" id="calibCancel">Cancel</button>';
+  } else if (p && p.state === 'failed') {
+    html = `<span class="calib-warn">Calibration ${esc(p.from)} ~ ${esc(p.to)} failed: ${esc(p.error || Object.values(p.errors || {}).join(' · '))}</span>`;
+  }
+  const c = d.candidate;
+  if (c) {
+    const t = Date.now();
+    const rows = ['left', 'right'].map((v) => {
+      const x = c[v] || {};
+      if (x.kept) return `<div><b>${v}</b>: kept as it is (${esc(x.kept)})</div>`;
+      const ch = x.check || {};
+      const dk = x.from_k ? 100 * (x.k / x.from_k - 1) : null;
+      return `<div><b>${v}</b>: K <span class="calib-k">${x.from_k} → ${x.k}</span> (${dk == null ? '-' : `${dk > 0 ? '+' : ''}${dk.toFixed(1)}%`}) · ` +
+        `plate found ${ch.found_new} / ${ch.pictures} (before ${ch.found_old}) · scale vs before ${pct(ch.vs_old_pct_median)}` +
+        ` (p90 ${pct(ch.vs_old_pct_p90)})${ch.qr_pictures ? ` · vs QR on the shoe ${pct(ch.vs_qr_pct_median)} (${ch.qr_pictures})` : ''}</div>` +
+        `<div class="calib-tpl"><figure><img alt="" src="/api/predict/calib/template?which=in_use&view=${v}&t=${t}"><figcaption>in use</figcaption></figure>` +
+        `<figure><img alt="" src="/api/predict/calib/template?which=candidate&view=${v}&t=${t}"><figcaption>new (${esc(x.ref || '')})</figcaption></figure></div>`;
+    }).join('');
+    html += `<div><b>New calibration</b> from ${esc(c.from)} ~ ${esc(c.to)} (estimated K: the scale goes on where it was; not applied yet)</div>${rows}` +
+      '<div class="calib-actions"><button type="button" id="calibApply">Apply</button><button type="button" class="secondary" id="calibDiscard">Discard</button></div>';
+  }
+  msg.innerHTML = html;
+  msg.hidden = !html;
+}
+
+async function calibPost(path, body, button) {
+  if (button) button.disabled = true;
+  try {
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+    if (!r.ok) throw new Error((await r.text()).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200) || r.status);
+    return await r.json();
+  } catch (e) {
+    window.alert('Failed: ' + e.message);
+    return null;
+  } finally {
+    if (button) button.disabled = false;
+    await loadCalib();
+  }
+}
+
+async function startCalib() {
+  const from = $('calibFrom').value, to = $('calibTo').value;
+  if (!from || !to || from > to) { window.alert('Pick the first and the last day (first <= last).'); return; }
+  if (!window.confirm(`Calibrate the cam plate with the pictures of ${from} ~ ${to}?\n\nUse days AFTER the camera was moved. ` +
+    'The worker uses up to 30 sets of them when the line is idle (about 2 min). Nothing changes until you press Apply.')) return;
+  await calibPost('/api/predict/calib', { from, to }, $('calibStart'));
+}
+
 async function cancelJob(id, button) {
   if (!window.confirm('Stop predicting this period? The results made so far stay.')) return;
   button.disabled = true;
@@ -280,6 +362,7 @@ async function load(append) {
     renderWorker(data.status);
     renderJob(data.job, data.status);
     $('liveOn').checked = !!data.live;
+    if ($('calibBox').open) loadCalib();
     renderFilters();
     renderRows();
     if (!selected && !append && rows.length) showSet(rows[0].id);   // the newest set is shown at first
@@ -303,6 +386,50 @@ function boxes(dets, ctx) {
     return `<div class="det${fine ? ' fine' : ''}${left ? ' off' : ''}" style="left:${x0 * 100}%;top:${y0 * 100}%;width:${(x1 - x0) * 100}%;height:${(y1 - y0) * 100}%">` +
       `<i>${esc(d.class)} ${d.conf.toFixed(2)}${esc(why)}</i></div>`;
   }).join('');
+}
+
+// The bonding gap of one side camera (result.gap.views[camera], backend/predict/bonding_gap.py) drawn over its picture as
+// in the QC viewer: the end of the spray (red), the midsole ledge (green), the parts over the limit (red, see-through),
+// the largest gap (yellow). Fractions of the picture, like the boxes: the same on the thumb, the cut out and the lightbox.
+function gapSvg(g) {
+  if (!g || !g.upper || !g.midsole) return '';
+  const pts = (a) => a.map(([x, y]) => `${x},${y}`).join(' ');
+  const over = (g.over || []).map((run) => `<polygon class="gap-over" points="${pts(run.map(([x, yr]) => [x, yr])
+    .concat(run.slice().reverse().map(([x, , yg]) => [x, yg])))}"/>`).join('');
+  const m = g.max_line;
+  return `<svg class="gap-lines" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">${over}` +
+    `<polyline class="gap-upper" points="${pts(g.upper)}"/><polyline class="gap-mid" points="${pts(g.midsole)}"/>` +
+    (m ? `<line class="gap-max" x1="${m[0][0]}" y1="${m[0][1]}" x2="${m[1][0]}" y2="${m[1][1]}"/>` : '') + '</svg>';
+}
+
+const mm = (v) => (v == null ? '-' : `${Number(v).toFixed(1)} mm`);
+// the gap of one camera in a few words, for the caption of its picture
+function gapNote(g) {
+  if (!g) return '';
+  if (g.max_mm == null) return ` · gap ${esc(g.status || '-')}`;
+  return ` · <span class="${g.defect ? 'gap-bad' : ''}">gap ${Number(g.max_mm).toFixed(1)} mm${g.over_mm ? `, over ${Math.round(g.over_mm)} mm` : ''}</span>`;
+}
+
+const GAP_STATUS = { ok: 'ok', unsure: 'warn', fail: 'warn', none: '' };
+function gapCard(gap) {
+  if (!gap) return '';
+  if (gap.error) return `<div class="card"><h3>Bonding gap</h3><div class="hint">The measurement failed: ${esc(gap.error)}</div></div>`;
+  const rows = Object.entries(gap.views || {}).sort((a, b) => rank(a[0]) - rank(b[0])).map(([cam, g]) =>
+    `<tr><td>${esc(cam)}</td><td>${g.defect ? '<span class="chip ng">BONDING GAP</span>' : (g.max_mm != null ? '<span class="chip ok">ok</span>' : '-')}</td>` +
+    `<td><span class="chip ${GAP_STATUS[g.status] || ''}">${esc(g.status || '-')}</span></td>` +
+    `<td class="num">${mm(g.max_mm)}</td><td class="num">${mm(g.median_mm)}</td><td class="num">${g.over_mm == null ? '-' : `${Math.round(g.over_mm)} mm`}</td>` +
+    `<td class="num">${g.span_mm == null ? '-' : `${Math.round(g.span_mm)} mm`}</td>` +
+    `<td>${esc(g.scale === 'qr' ? 'QR' : (g.scale === 'plate' ? 'cam plate' : '-'))}</td>` +
+    `<td>${esc([g.why, g.check].filter(Boolean).join(' · '))}</td></tr>`).join('');
+  return `<div class="card"><h3>Bonding gap</h3><table class="qr-table"><thead><tr><th>Camera</th><th>Verdict</th>` +
+    '<th title="ok; unsure = few columns found an edge or the edges are not parallel; fail / none = not measured (why)">Measured</th>' +
+    '<th class="num" title="The largest gap (a running median over 4 mm of length)">Max</th><th class="num">Median</th>' +
+    `<th class="num" title="Length of the shoe where the gap is over ${gap.limit_mm} mm">Over ${gap.limit_mm} mm</th>` +
+    '<th class="num" title="Length of the side traced">Traced</th><th title="The ruler: the QR label on the shoe (13 mm) or the cam plate on the last">Scale</th><th>Note</th></tr></thead>' +
+    `<tbody>${rows}</tbody></table><div class="hint">The white band between the end of the spray (red line) and the midsole ledge (green line), measured as in the QC viewer. ` +
+    `A camera is a BONDING GAP when the gap is over ${gap.limit_mm} mm along at least ${gap.over_min_mm} mm of the shoe (red parts in the picture; ON_PREDICT_GAP_LIMIT_MM, ON_PREDICT_GAP_OVER_MM), ` +
+    `the set when either camera is. The toe and the heel turn away from the camera: values there are less exact. ` +
+    `${gap.calib ? `Cam plate calibration: ${esc(gap.calib[0])} ${esc((gap.calib[1] || '').replace('T', ' '))}. ` : ''}${gap.ms} ms.</div></div>`;
 }
 
 const REASON_TEXT = { fine: 'fine class', recurring: 'recurring', 'off shoe': 'off shoe' };
@@ -342,9 +469,10 @@ async function showSet(id) {
     dets.forEach((d, i) => all.push({ role, class: d.class, conf: d.conf, c: (vc.detections || [])[i] || {}, sharp: vc.sharpness }));
     const sharp = vc.sharpness == null ? '' : ` · sharp ${Math.round(vc.sharpness)}`;
     const cut = v && v.seg ? (v.seg.found ? ' · bg removed' : ' · no shoe outlined') : '';
-    const info = v ? `${dets.length} found${sharp}${cut} · ${Math.round(v.ms)} ms` : esc(err || 'not predicted');
+    const g = ((res.gap || {}).views || {})[role];
+    const info = v ? `${dets.length} found${sharp}${cut}${gapNote(g)} · ${Math.round(v.ms)} ms` : esc(err || 'not predicted');
     return `<div class="pred-cell"><div class="cap"><b>${esc(role)}</b><span>${info}</span></div>
-      <div class="pred-box" data-role="${esc(role)}"><img loading="lazy" alt="" src="${pictureUrl(id, role, 'thumb', v)}">${boxes(dets, vc.detections)}</div></div>`;
+      <div class="pred-box" data-role="${esc(role)}"><img loading="lazy" alt="" src="${pictureUrl(id, role, 'thumb', v)}">${gapSvg(g)}${boxes(dets, vc.detections)}</div></div>`;
   }).join('');
   const table = all.length
     ? '<div class="card"><h3>Detections</h3><table class="qr-table"><thead><tr><th>Camera</th><th>Class</th><th class="num">Score</th>' +
@@ -358,7 +486,7 @@ async function showSet(id) {
         `<td>${statusChip(d.c)}</td><td class="num">${d.c.recurring == null ? '-' : d.c.recurring}</td>` +
         `<td class="num">${mapChip((ctx.classes || {})[d.class])}</td><td class="num">${d.sharp == null ? '-' : Math.round(d.sharp)}</td></tr>`).join('') +
       '</tbody></table><div class="hint">With the corrections on, a box that does not count (recurring, off the shoe or a fine class) is drawn dashed and dim, and only the others decide DEFECT / OK; "raw" is what the model alone would say. A recurring box can also be a real defect that every shoe has: look at those once. "unknown": no shoe region was stored for that picture (sets saved with ON_PICK_MODE=classic) or it covers most of the picture and is not trusted. Class mAP50 is a property of the model, not of this detection: a low value means the model finds that class badly even in its own tests.</div></div>'
-    : '<div class="hint">Nothing was detected in any picture.</div>';
+    : '<div class="hint">The model detected nothing in any picture.</div>';
   $('detail').dataset.id = id;
   $('detail').innerHTML = `<div class="pred-head"><h2>${esc(res.shoe_id || 'no QR value')} ${badge(verdictRow(ctx, res))}</h2>
     <div class="meta">${esc((res.timestamp || '').replace('T', ' ').slice(0, 19))} · predicted ${esc((res.predicted_at || '').replace('T', ' '))} ·
@@ -367,7 +495,7 @@ async function showSet(id) {
       · <button type="button" id="saveOne" class="secondary" style="padding:2px 10px" title="Save this set: the pictures with the boxes and a result.json">Save this set</button>
       · <button type="button" id="delOne" class="secondary" style="padding:2px 10px" title="Delete the result of this set (the set and its pictures stay)">Delete result</button></div>
     ${res.error ? `<div class="card">Failed: ${esc(res.error)}</div>` : ''}</div>
-    <div class="pred-grid">${cells}</div>${table}`;
+    <div class="pred-grid">${cells}</div>${gapCard(res.gap)}${table}`;
 }
 
 // the verdict of a set as the page shows it: corrected or raw (from the context of the detail)
@@ -379,9 +507,9 @@ function verdictRow(ctx, res) {
 function openLightbox(id, role) {
   const v = current && current.views ? current.views[role] : null;
   $('lbImg').src = pictureUrl(id, role, 'image', v);
-  $('lbBox').querySelectorAll('.det').forEach((n) => n.remove());
+  $('lbBox').querySelectorAll('.det, .gap-lines').forEach((n) => n.remove());
   const vc = currentCtx && currentCtx.views ? currentCtx.views[role] : null;
-  $('lbBox').insertAdjacentHTML('beforeend', boxes(v ? v.detections : [], vc ? vc.detections : null));
+  $('lbBox').insertAdjacentHTML('beforeend', gapSvg(((current.gap || {}).views || {})[role]) + boxes(v ? v.detections : [], vc ? vc.detections : null));
   $('lbCaption').textContent = `${role.toUpperCase()} · ${id}`;
   $('lbOpen').href = pictureUrl(id, role, 'image', v);
   $('lb').hidden = false;
@@ -417,6 +545,21 @@ $('detail').addEventListener('click', (e) => {
   if (d && selected) deleteResults({ ids: [selected] }, 'Delete the result of this set? The set and its pictures stay.', d);
 });
 $('jobStart').onclick = startJob;
+$('calibStart').onclick = startCalib;
+$('calibDefault').onclick = () => {
+  if (window.confirm('Stop using the site calibration and measure with the default one of the repo again? (The site one is kept in history.)')) {
+    calibPost('/api/predict/calib/default', {}, $('calibDefault'));
+  }
+};
+$('calibBox').addEventListener('toggle', () => { if ($('calibBox').open) loadCalib(); });
+$('calibMsg').addEventListener('click', (ev) => {
+  const t = ev.target;
+  if (t.id === 'calibCancel') calibPost('/api/predict/calib/cancel', {}, t);
+  if (t.id === 'calibApply' && window.confirm('Measure the bonding gap with the new calibration from now on? (Results made before keep their scale: predict a period again to remeasure them.)')) {
+    calibPost('/api/predict/calib/apply', {}, t);
+  }
+  if (t.id === 'calibDiscard' && window.confirm('Throw the new calibration away?')) calibPost('/api/predict/calib/discard', {}, t);
+});
 $('liveOn').onchange = setLive;
 $('jobMsg').addEventListener('click', (e) => {
   const b = e.target.closest('#jobCancel');
@@ -427,6 +570,8 @@ $('jobMsg').addEventListener('click', (e) => {
   const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   $('jobFrom').value = today;
   $('jobTo').value = today;
+  $('calibFrom').value = today;
+  $('calibTo').value = today;
 }
 $('dateSel').onchange = () => load(false);
 $('clsSel').onchange = () => load(false);

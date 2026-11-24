@@ -5,6 +5,7 @@
 - `worker.py`: 저장된 세트를 자동으로 검사하는 **별도 프로세스**(launchd 서비스). 결과는 `captures/.predict/`에 저장되고 웹의 Predict 메뉴에 나옵니다. 라인의 새 세트는 Predict 화면의 **Predict new sets**를 체크했을 때만 예측합니다(기본 꺼짐). 설치와 설정은 [docs/predict.md](../../docs/predict.md).
 - `run_folder.py`, `bench.py`: 카메라 없이 PC/Mac에서 시험하는 도구(아래).
 - `engine.py`: 위 셋이 같이 쓰는 모델 로드/추론/그리기.
+- `bonding_gap.py`: Bonding gap(스프레이 끝 ~ 미드솔 턱 간격) 측정. QC viewer(`train/qc_sheet`)에서 만든 것을 그대로 옮김(2026-11-24). 워커가 불량 모델 다음에 left·right 사진을 잽니다. 캠플레이트 템플릿과 보정값은 `backend/models/bonding_gap/`. QC 내보내기 폴더 전체 측정: `python -m backend.predict.bonding_gap <폴더> [--draw <출력>]`.
 - `segment.py`: 신발 분할 모델(`backend/models/shoe_segmentation/best.pt`). 워커와 `run_folder.py --seg`가 사진에서 신발만 남긴 뒤(배경은 회색) 불량 모델에 넘깁니다. 배경 제거 사진을 만드는 코드는 `backend/storage/cutout.py`(웹도 같이 씀).
 
 ## 설치 (카메라 앱과 별도)

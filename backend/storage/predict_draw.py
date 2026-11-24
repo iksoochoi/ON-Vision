@@ -15,13 +15,46 @@ def read_picture(path):
         return None
 
 
-def draw(image, detections, corrected, ok_classes, max_side):
+YELLOW = (10, 214, 255)
+
+
+def draw_gap(out, gap, thick, scale):
+    """The bonding gap of this camera (result["gap"]["views"][camera]) as in the QC viewer: the end of the spray (red),
+    the midsole ledge (green), the parts over the limit (red, see-through), the largest gap (yellow) and its value."""
+    if not gap or not gap.get("upper") or not gap.get("midsole"):
+        return out
+    h, w = out.shape[:2]
+    P = lambda pts: (np.array(pts, dtype=float).reshape(-1, 2) * [w, h]).astype(np.int32)
+    runs = gap.get("over") or []
+    if runs:
+        layer = out.copy()
+        for run in runs:
+            cv2.fillPoly(layer, [P([(x, yr) for x, yr, _ in run] + [(x, yg) for x, _, yg in reversed(run)])], RED)
+        out = cv2.addWeighted(layer, 0.45, out, 0.55, 0)
+    cv2.polylines(out, [P(gap["upper"])], False, RED, thick)
+    cv2.polylines(out, [P(gap["midsole"])], False, GREEN, thick)
+    if gap.get("max_line"):
+        (xa, ya), (xb, yb) = P(gap["max_line"])
+        cv2.line(out, (int(xa), int(ya)), (int(xb), int(yb)), YELLOW, thick + 1)
+    if gap.get("max_mm") is not None:
+        x, y = P([gap.get("max_at") or gap["upper"][0]])[0]
+        label = (f"gap {gap['max_mm']:.1f} mm" + (f", over {gap['over_mm']:.0f} mm" if gap.get("over_mm") else "")
+                 + (" BONDING GAP" if gap.get("defect") else ""))
+        (tw, th), base = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, scale, max(1, thick - 1))
+        x0, y0 = max(0, min(int(x) - tw // 2, w - tw - 8)), min(h - th - base - 4, int(y) + 3 * th)
+        cv2.rectangle(out, (x0, y0), (x0 + tw + 8, y0 + th + base + 4), RED if gap.get("defect") else YELLOW, -1)
+        cv2.putText(out, label, (x0 + 4, y0 + th + 1), cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), max(1, thick - 1), cv2.LINE_AA)
+    return out
+
+
+def draw(image, detections, corrected, ok_classes, max_side, gap=None):
     """The picture with the boxes drawn (a copy), scaled down to max_side (0 = as it is). detections: [{"class",
-    "conf", "box": fractions, "ctx": {"counted", "reasons"}}]."""
+    "conf", "box": fractions, "ctx": {"counted", "reasons"}}]. gap: the bonding gap of this camera (drawn first)."""
     out = image.copy()
     h, w = out.shape[:2]
     thick = max(2, round(w / 700))
     scale = max(0.7, w / 1800)
+    out = draw_gap(out, gap, thick, scale)
     for d in detections:
         x0, y0, x1, y1 = (int(d["box"][0] * w), int(d["box"][1] * h), int(d["box"][2] * w), int(d["box"][3] * h))
         ctx = d.get("ctx") or {}
