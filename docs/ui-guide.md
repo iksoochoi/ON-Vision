@@ -12,6 +12,7 @@
   - 들어가는 값: 카메라별 노출, ISO, AE limit, WB, 초점(lens), sharpness, luma/chroma denoise, AE comp, brightness, contrast, saturation, flicker. 해상도·회전·줌·기준 카메라는 들어가지 않습니다(설비 설정).
   - 상단 상태줄의 `Preset ON1GR` 칩이 마지막에 적용한 프리셋입니다. 적용 뒤 카메라 값이나 조명을 손으로 바꾸면 `(changed)`(노란색)가 붙습니다. 그 값이 좋으면 같은 이름으로 다시 Save하세요.
   - 저장되는 세트 JSON에 `preset: {"name", "modified"}`가 남아서, 나중에 어떤 설정으로 찍은 사진인지 구분할 수 있습니다.
+  - 조명 값도 세트 JSON에 남습니다: `lights: {"values": {"left": 120, ...}, "read_at"}`. 세트마다 컨트롤러에 묻지 않고, 앱이 **마지막으로 읽거나 바꾼 값**을 씁니다(Light 탭/페이지를 열 때, 조명을 바꿀 때, 프리셋 Apply/Save 때, 앱 시작 때). 컨트롤러 자체 버튼으로 바꾼 값은 앱이 다시 읽기 전까지 반영되지 않습니다. Preset 탭 위쪽에 지금 기록 중인 조명 값과 읽은 시각이 보입니다.
   - 파일: `captures/.presets.json`(git 밖, Mac에만 있음). 카메라 값은 지금처럼 `captures/.settings.json`에도 기억되어 재시작해도 유지됩니다.
 - 자동 캡처, QR, 카메라 관리·설정 같은 조작 메뉴는 오른쪽 **조작 패널**에 있습니다. 상단의 `조작 패널` 버튼이나 패널의 ✕로 열고 닫으며, 열림 상태는 브라우저에 기억됩니다(처음에는 넓은 화면에서만 열려 있음).
 

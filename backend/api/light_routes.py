@@ -33,6 +33,7 @@ class LightRoutes:
         except lpw.LightError as e:
             self.send_error(502, str(e))
             return
+        presets.note_lights(values)   # the sets record the lights
         self._send_json(_payload(values))
 
     def _set_light(self, data):
@@ -62,6 +63,7 @@ class LightRoutes:
         except lpw.LightError as e:
             self.send_error(502, str(e))
             return
+        presets.note_lights(values)
         print(f"[light] {', '.join(f'{known[c]} (CH{c})' for c in chs)} -> {value}"
               f"{'' if error is None else ' (NOT saved)'}  (from {self.client_address[0]})")
         self._send_json(_payload(values, saved=error is None, save_error=error))
@@ -80,6 +82,7 @@ class LightRoutes:
         except lpw.LightError as e:
             self.send_error(502, str(e))
             return
+        presets.note_lights(values)
         print(f"[light] saved in the controller: {', '.join(f'{n} {values[c - 1]}' for n, c in C.LIGHT_CHANNELS)}"
               f"  (from {self.client_address[0]})")
         self._send_json(_payload(values, saved=True, save_error=None))

@@ -9,7 +9,12 @@ What a preset holds: the CAM_PARAMS of each camera (exposure, ISO, AE limit, WB,
 brightness, contrast, saturation, flicker). Not the resolutions, rotation, zoom, stream or the reference camera: those
 are the set-up of the station, not of the product. The lights: the value of each channel of ON_LIGHT_CHANNELS.
 "active" is the preset applied last; "modified" turns true when a camera value or a light is changed by hand after it
-(the sets saved then are not exactly the preset). Every saved set records it (meta "preset")."""
+(the sets saved then are not exactly the preset). Every saved set records it (meta "preset").
+
+The lights (2026-11-25): the app does not ask the controller for every set (a TCP request per set); it keeps the
+values it last read or set - on the Light tab / page, a preset applied or saved, and once at the start of the app - in
+"lights_now" {"values": {name: value}, "read_at"} of the same file, and every saved set records that (meta "lights").
+A change made on the controller itself (not through the app) is not seen until the app reads the lights again."""
 
 import json
 import os
@@ -35,6 +40,8 @@ def _read():
         data["presets"] = {}
     if not isinstance(data.get("active"), dict):
         data["active"] = None
+    if not isinstance(data.get("lights_now"), dict):
+        data["lights_now"] = None
     return data
 
 
@@ -66,11 +73,12 @@ def clean_params(params):
 
 
 def load():
-    """{"active", "presets": [{"name", "saved_at", "cameras", "lights"}] sorted by name}"""
+    """{"active", "presets": [{"name", "saved_at", "cameras", "lights"}] sorted by name, "lights_now"}"""
     with _lock:
         data = _read()
     items = [dict(p, name=n) for n, p in data["presets"].items() if isinstance(p, dict)]
-    return {"active": data["active"], "presets": sorted(items, key=lambda p: p["name"].lower())}
+    return {"active": data["active"], "presets": sorted(items, key=lambda p: p["name"].lower()),
+            "lights_now": data["lights_now"]}
 
 
 def get(name):
@@ -126,19 +134,54 @@ def mark_modified():
         _write(data)
 
 
-_meta_cache = {"stamp": None, "value": None}
+def note_lights(values):
+    """The lights as the app just read or set them: values = the controller's 16 values (list) or {ch: value}.
+    Kept as {name: value} of ON_LIGHT_CHANNELS; written only when they changed (or the last read is old)."""
+    if values is None:
+        return
+    get = (lambda ch: values[ch - 1]) if isinstance(values, (list, tuple)) else (lambda ch: values.get(ch, values.get(str(ch))))
+    named = {}
+    for name, ch in C.LIGHT_CHANNELS:
+        v = get(ch)
+        if v is not None:
+            named[name] = int(v)
+    if not named:
+        return
+    with _lock:
+        data = _read()
+        old = data.get("lights_now") or {}
+        data["lights_now"] = {"values": named, "read_at": _now()}
+        if old.get("values") == named and (old.get("read_at") or "")[:13] == data["lights_now"]["read_at"][:13]:
+            return   # the same values, already noted this hour: no write
+        _write(data)
 
 
-def for_meta():
-    """What a saved set records: {"name", "modified"} of the active preset, or None. Read again only when the file
-    changed (called for every set)."""
+_meta_cache = {"stamp": None, "preset": None, "lights": None}
+
+
+def _meta():
+    """(preset, lights) for the sets, read again only when the file changed (called for every set)."""
     try:
         st = PATH.stat()
         stamp = (st.st_mtime_ns, st.st_size)
     except OSError:
-        return None
+        return None, None
     if stamp != _meta_cache["stamp"]:
         with _lock:
-            a = _read()["active"]
-        _meta_cache.update(stamp=stamp, value={"name": a["name"], "modified": bool(a.get("modified"))} if a else None)
-    return dict(_meta_cache["value"]) if _meta_cache["value"] else None
+            data = _read()
+        a, lights = data["active"], data["lights_now"]
+        _meta_cache.update(stamp=stamp, preset={"name": a["name"], "modified": bool(a.get("modified"))} if a else None,
+                           lights=dict(lights) if lights and lights.get("values") else None)
+    return _meta_cache["preset"], _meta_cache["lights"]
+
+
+def for_meta():
+    """What a saved set records as "preset": {"name", "modified"} of the active preset, or None."""
+    p = _meta()[0]
+    return dict(p) if p else None
+
+
+def lights_for_meta():
+    """What a saved set records as "lights": {"values": {name: 0..255}, "read_at"} as the app last knew them, or None."""
+    lights = _meta()[1]
+    return {"values": dict(lights["values"]), "read_at": lights.get("read_at")} if lights else None

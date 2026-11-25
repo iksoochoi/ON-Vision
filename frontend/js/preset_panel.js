@@ -55,10 +55,13 @@
     renderChip();
     const list = (data && data.presets) || [];
     const a = data && data.active;
-    $('presetActive').innerHTML = a
+    const ln = data && data.lights_now;
+    $('presetActive').innerHTML = (a
       ? `Running: <b>${esc(a.name)}</b>, applied ${esc(when(a.applied_at))}` +
         (a.modified ? ' <span class="warn-text">- changed by hand since</span>' : '')
-      : 'No preset applied yet.';
+      : 'No preset applied yet.') +
+      (ln && ln.values ? `<br>Lights recorded with the sets: ${Object.entries(ln.values).map(([n, v]) => `${esc(n)} ${v}`).join(' · ')}` +
+        ` <span title="The app reads the lights on the Light tab / page, when a preset is applied or saved, and at its start. A change made on the controller itself is seen at the next read.">(read ${esc(when(ln.read_at))})</span>` : '');
     const pick = $('presetPick');
     const keep = pick.value || (a && a.name) || '';
     pick.innerHTML = list.length

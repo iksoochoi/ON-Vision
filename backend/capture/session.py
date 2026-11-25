@@ -170,6 +170,9 @@ def assemble_set(source, views, view_meta, missing, sample=None, burst=None):
     preset = presets.for_meta()   # the product preset the station runs (Live > Controls > Preset)
     if preset:
         meta["preset"] = preset
+    lights = presets.lights_for_meta()   # the lights as the app last read / set them
+    if lights:
+        meta["lights"] = lights
     if burst:
         meta["burst"] = burst
     if missing:

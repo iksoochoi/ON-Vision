@@ -20,6 +20,7 @@ def _lights_now():
         values = lpw.read_values()
     except lpw.LightError as e:
         return None, str(e)
+    presets.note_lights(values)
     return {ch: values[ch - 1] for _, ch in C.LIGHT_CHANNELS}, None
 
 
@@ -82,8 +83,11 @@ class PresetRoutes:
                         lpw.set_value(chs, v)
                         lights_set.update({ch: v for ch in chs})
                     lpw.save()
+                    presets.note_lights(lpw.read_values())   # as the controller has them now
                 except (lpw.LightError, ValueError) as e:
                     light_error = str(e)
+                    if lights_set:
+                        presets.note_lights(lights_set)
         presets.set_active(name)
         if light_error:
             presets.mark_modified()   # the cameras are the preset's, the lights may not be

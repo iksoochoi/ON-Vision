@@ -22,6 +22,18 @@ from .core.state import state, state_lock
 from .health import applog, collect, monitor
 
 
+def _read_lights_once():
+    """The lights as they are at the start (the sets record them, storage/presets.py); no controller: nothing."""
+    if not C.LIGHT_HOST:
+        return
+    from .light import lpw
+    from .storage import presets
+    try:
+        presets.note_lights(lpw.read_values())
+    except lpw.LightError as e:
+        print(f"[light] could not read the lights at start ({e}): the sets record them after the next read")
+
+
 def run(stop=None):
     """Start the HTTP server and one worker per camera, then block until Ctrl+C (or until `stop` is set)."""
     stop = stop or threading.Event()
@@ -37,6 +49,7 @@ def run(stop=None):
     except ValueError:   # not the main thread
         pass
     server = start_server()
+    threading.Thread(target=_read_lights_once, name="lights-at-start", daemon=True).start()
     try:
         # imported late: the camera package needs the depthai package
         from .camera.registry import registry
