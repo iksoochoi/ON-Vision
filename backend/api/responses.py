@@ -37,6 +37,7 @@ STATIC_FILES = {
     "/js/light.js":      ("js/light.js",       "application/javascript; charset=utf-8"),
     "/js/qcexport.js":   ("js/qcexport.js",    "application/javascript; charset=utf-8"),
     "/js/light_panel.js": ("js/light_panel.js", "application/javascript; charset=utf-8"),
+    "/js/preset_panel.js": ("js/preset_panel.js", "application/javascript; charset=utf-8"),
     "/js/zoom.js":       ("js/zoom.js",        "application/javascript; charset=utf-8"),
     "/js/welcome.js":    ("js/welcome.js",     "application/javascript; charset=utf-8"),
 }

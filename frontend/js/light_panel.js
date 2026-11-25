@@ -124,13 +124,15 @@
     });
     $('tabCamera').hidden = name !== 'camera';
     $('tabLight').hidden = name !== 'light';
+    if ($('tabPreset')) $('tabPreset').hidden = name !== 'preset';
     try { localStorage.setItem(TAB_KEY, name); } catch (e) {}
     if (name === 'light') load();
+    window.dispatchEvent(new CustomEvent('livetab', { detail: name }));
   }
 
   document.querySelectorAll('.panel-tabs button').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
   $('lightRead').onclick = load;
   let first = 'camera';
-  try { first = localStorage.getItem(TAB_KEY) === 'light' ? 'light' : 'camera'; } catch (e) {}
+  try { const t = localStorage.getItem(TAB_KEY); first = t === 'light' || t === 'preset' ? t : 'camera'; } catch (e) {}
   showTab(first);
 })();

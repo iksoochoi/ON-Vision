@@ -6,6 +6,7 @@ from ..core.config import CAM_PARAMS
 from ..core.events import broadcast
 from ..core.rotation import unrotate_point
 from ..core.state import state, state_lock
+from ..storage import presets
 from .state_payload import build_state
 
 
@@ -77,5 +78,6 @@ class StateRoutes:
         for slot in slots:
             slot.set_param(name, v)
         registry.save_settings()   # remembered across restarts
+        presets.mark_modified()    # no longer exactly the preset applied last
         broadcast({"key": "cam", "role": role, "name": name, "value": v})
         self._send_json({"role": role, "name": name, "value": v})

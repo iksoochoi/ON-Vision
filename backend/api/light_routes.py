@@ -1,7 +1,9 @@
 """Light page: read and set the brightness of the lights (backend/light/lpw.py)."""
 
 from ..core import config as C
+from ..core.events import broadcast
 from ..light import lpw
+from ..storage import presets
 
 
 def _payload(values, **extra):
@@ -52,6 +54,8 @@ class LightRoutes:
             print(f"[light] setting {', '.join(known[c] for c in chs)} to {value} failed: {e}")
             self.send_error(502, str(e))
             return
+        presets.mark_modified()   # no longer exactly the preset applied last
+        broadcast({"key": "preset"})   # the Live page shows the preset as changed
         error = _save()
         try:
             values = lpw.read_values()

@@ -228,7 +228,7 @@ body.panel-open #panelToggle .pane { opacity: 1; }
 .iconbtn svg { width: 16px; height: 16px; display: block; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 /* Camera / Light tabs of the Controls panel */
-.panel-tabs { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 12px; }
+.panel-tabs { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 12px; }
 .panel-tabs button { border-radius: 0; background: #243026; color: var(--text); padding: 7px 12px; font-weight: 560; }
 .panel-tabs button:first-child { border-radius: 10px 0 0 10px; }
 .panel-tabs button:last-child { border-radius: 0 10px 10px 0; }
@@ -364,3 +364,15 @@ input[type="range"] { accent-color: var(--accent); }
 .switch input:checked + span::before { transform: translateX(16px); }
 .qr-latest { font: 680 20px/1.3 var(--mono); word-break: break-all; min-height: 26px; }
 
+
+/* Controls > Preset: product presets (every camera + the lights under a name) */
+.preset-row { grid-template-columns: 56px minmax(0, 1fr) auto; }
+.preset-row select, .preset-row input[type="text"] { min-width: 0; width: 100%; }
+.preset-row button { padding: 5px 12px; }
+.preset-actions { margin-top: 6px; }
+.preset-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); margin: 4px 0 6px; cursor: pointer; }
+.preset-table { width: 100%; border-collapse: collapse; font: 12px/1.3 var(--mono); margin: 4px 0; }
+.preset-table th { text-align: left; color: var(--dim); font-weight: 560; padding: 3px 4px; border-bottom: 1px solid var(--line); }
+.preset-table td { padding: 3px 4px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.warn-text { color: var(--warn); }
+#presetStatus.err { color: var(--warn); }

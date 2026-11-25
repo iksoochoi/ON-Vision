@@ -37,6 +37,7 @@
       <span class="chip" id="shotsChip">Shots -</span>
       <span class="chip" id="camChip">Cameras -</span>
       <span class="chip" id="detectorChip">Detect: -</span>
+      <span class="chip" id="presetChip" hidden title="The product preset applied last (Controls > Preset)">Preset -</span>
     </div>
   </div>
   <div class="live">
@@ -54,6 +55,7 @@
       <div class="panel-tabs" role="tablist" aria-label="Settings">
         <button type="button" role="tab" id="tabBtnCamera" data-tab="camera" aria-controls="tabCamera" aria-selected="true" class="active">Camera</button>
         <button type="button" role="tab" id="tabBtnLight" data-tab="light" aria-controls="tabLight" aria-selected="false">Light</button>
+        <button type="button" role="tab" id="tabBtnPreset" data-tab="preset" aria-controls="tabPreset" aria-selected="false">Preset</button>
       </div>
       <div class="panel-tab" id="tabCamera" role="tabpanel" aria-labelledby="tabBtnCamera">
       <div class="card">
@@ -116,6 +118,33 @@
           <div class="hint">0 = off, 255 = full. A value is sent when you let go of the slider (or press Enter in the box) read back from the controller and saved in it, so it keeps the value after a power off. The <a href="/light">Light page</a> shows each camera next to its light.</div>
         </div>
       </div>
+      <div class="panel-tab" id="tabPreset" role="tabpanel" aria-labelledby="tabBtnPreset" hidden>
+        <div class="card">
+          <h3>Product preset</h3>
+          <div class="hint" id="presetActive">Loading…</div>
+          <div class="slider-row preset-row">
+            <label for="presetPick">Preset</label>
+            <select id="presetPick"></select>
+            <button type="button" id="presetApply" title="Set every camera and the lights to this preset">Apply</button>
+          </div>
+          <div id="presetDetail"></div>
+          <div class="row preset-actions">
+            <button type="button" id="presetDelete" class="secondary" title="Delete this preset (the cameras keep their values)">Delete</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Save current settings</h3>
+          <div class="slider-row preset-row">
+            <label for="presetName">Name</label>
+            <input type="text" id="presetName" maxlength="40" placeholder="e.g. ON1WH" list="presetNames" autocomplete="off">
+            <button type="button" id="presetSave" class="secondary" title="Save the values every camera (and the lights) has now under this name">Save</button>
+          </div>
+          <datalist id="presetNames"></datalist>
+          <label class="preset-check"><input type="checkbox" id="presetLights" checked> Include the lights</label>
+          <div class="hint">A preset holds every camera's exposure, ISO, AE limit, WB, focus, sharpness, denoise, AE comp, brightness, contrast, saturation and flicker, and the brightness of each light. Not the resolution, rotation, zoom or reference camera. Set up the cameras and lights for a product, then save them under its name (the QR model code, e.g. ON1GR, ON1WH, ON1BL); when the production changes, pick the product and press Apply. Every saved set records the preset (marked "changed" when a value was changed by hand after Apply).</div>
+          <div class="hint" id="presetStatus"></div>
+        </div>
+      </div>
     </aside>
   </div>
   <div class="toast" id="toast" hidden></div>
@@ -155,6 +184,7 @@
 <script src="/js/zoom.js"></script>
 <script src="/js/live.js"></script>
 <script src="/js/light_panel.js"></script>
+<script src="/js/preset_panel.js"></script>
 </body>
 </html>
 

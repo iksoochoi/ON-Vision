@@ -15,7 +15,7 @@ from ..core import config as C
 from ..core.events import broadcast
 from ..core.state import state, state_lock
 from ..detect.trigger import CenterTrigger, Shot
-from ..storage import capture_log
+from ..storage import capture_log, presets
 from ..storage.store import make_bbox, store
 from . import disk_guard, sharpness
 from .presence import presence
@@ -167,6 +167,9 @@ def assemble_set(source, views, view_meta, missing, sample=None, burst=None):
         "sensor_resolution": view_meta[trigger.role].get("sensor_resolution"),
         "views": view_meta,
     }
+    preset = presets.for_meta()   # the product preset the station runs (Live > Controls > Preset)
+    if preset:
+        meta["preset"] = preset
     if burst:
         meta["burst"] = burst
     if missing:

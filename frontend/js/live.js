@@ -950,6 +950,11 @@ source.onmessage = (e) => {
     case 'cam':
       setParamLocal(data.role || 'all', data.name, data.value);
       refreshCamValues();
+      window.dispatchEvent(new CustomEvent('presetchanged'));   // may be 'changed' after a preset now
+      break;
+    case 'preset':   // a preset was applied / saved / deleted: the camera values and the Preset tab
+      refreshStateSoon();
+      window.dispatchEvent(new CustomEvent('presetchanged'));
       break;
     case 'camera_status':
       if (cams[data.role]) {
