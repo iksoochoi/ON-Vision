@@ -55,6 +55,12 @@ on the right camera of the lime ON1GR, the pale lime under it; also some grey ON
 the letters: a box-shaped wide gap as long as the window (~38 mm), just over OVER_MIN_MM. All 1,075 sets of
 qc_1105-1109 / 1110-1114 / 1116-1121: no new defect, 22 less (ON1GR OK 2 -> 0, other types 25 -> 12; ON1WH other
 types 14 -> 7), the known Bonding_gap found the same (ON1GR 20/30, ON1WH 15/23), the median gap unchanged on 93%.
+2026-11-25 (ALGO 10, ON1BL with the new lights): at the toe of the right camera the top edge of the midsole is faint
+and the tracing slid down to the lower end of the white midsole (the line to the outsole), a false 7-8 mm over 2-4 cm
+(predict_20261125_111938: 26038R, 36033R). Such points (the outsole within ~8 mm below AND the gap 1.5 mm over the
+line's median, over 5 mm along) are left out (_slid): 26038R 7.9 -> 4.7, 36033R 8.1 -> 5.3. A check inside the tracing
+(find) was tried first and dropped: at the toe of some shoes the outsole lugs come up to ~4 mm under the true edge
+(ON1BL 48992L right: the line then went up onto the upper).
 """
 import argparse
 import json
@@ -67,7 +73,8 @@ import numpy as np
 
 QR_MM = 13.0          # the side of the printed QR code (not the label)
 LIMIT_MM = 5.0        # more than this is a bonding gap defect (until 2026-11-19 4.0; see OVER_MIN_MM)
-ALGO = 9              # change when the measurement changes: older cached results are measured again
+ALGO = 10             # change when the measurement changes: older cached results are measured again
+                      # (10, 2026-11-25: midsole points slid down to the outsole at the toe left out, see _slid)
                       # (9, 2026-11-25: the start window found again by the lowest turn, see _trace)
                       # (7, 2026-11-18: a coloured upper in the blue channel; the label on the plate hidden)
                       # (8, 2026-11-19: a coloured upper in V - 2*S; the cam plate found in three steps; no QR:
@@ -86,6 +93,11 @@ PROFILE = False       # True: measure_full adds "_prof" (every column) for tunin
 MAX_WALL_DROP = 60    # tracing: below the midsole edge the side wall is still light (the bright line minus the mean of
 WALL_SIDES = 0.15     # this many QR sides below it, about 2 mm); more: the edge found is the dark outsole at the toe or
                       # heel (spray down to the midsole there, 2026-11-17: 20261109_142131_460 read 8.1 mm at the toe)
+DEEP_SIDES = 0.6      # a midsole point slid down (measure_full, 2026-11-25 ON1BL): the dark outsole within this many QR
+DEEP_DROP = 100       # sides (~8 mm) below it (a point this much darker than the bright line above it) AND the gap there
+SLID_MM = 1.5         # this much wider than the median of the line: the lower end of the white midsole at the toe, not
+                      # its top edge - left out (a normal gap with the outsole close below is the thin toe: kept)
+SLID_RUN_MM = 5.0     # ... over this length along the shoe at least
 SEED_DROP = 0.1      # the start window's upper edge replaced by the tracing's (the lowest turn) only when that is
                      # this many QR sides (~1.3 mm) lower (see _trace; the ON RUNNING letters of the lime ON1GR)
 SMOOTH_MM = 4.0      # the gap is a running median over this length
@@ -362,6 +374,48 @@ def _runs(mask):
     return out
 
 
+def _slid(gray, side, mmpx, x, r, g, found):
+    """The traced midsole points that slid down to the lower end of the white midsole (2026-11-25, ON1BL at the toe of
+    the right camera: the top edge of the midsole is faint there, the tracing went on along the white-to-outsole line
+    below it, a wide gap of 7-8 mm over 2-4 cm): the dark outsole within DEEP_SIDES below the point AND the gap there
+    SLID_MM wider than the median of the line, over SLID_RUN_MM along the shoe at least (single points: a spike of the
+    upper edge, a groove of the midsole). A bool array (True = leave the point out)."""
+    out = np.zeros(len(x), bool)
+    if not DEEP_DROP or found.sum() < 10:
+        return out
+    colw = max(2, int(side / 30))
+    k = max(3, int(round(2.0 / mmpx / colw)) | 1)
+    rs = np.array([np.median(r[max(0, i - k // 2):i + k // 2 + 1]) for i in range(len(r))])   # as measure_full
+    gap = (g - rs) * mmpx
+    med = float(np.median(gap[found]))
+    cand = found & (gap > med + SLID_MM)
+    if not cand.any():
+        return out
+    H, W = gray.shape
+    y0 = int(max(0, g[cand].min() - 0.4 * side))
+    y1 = int(min(H, g[cand].max() + DEEP_SIDES * side + 2))
+    G = cv2.GaussianBlur(gray[y0:y1].astype(np.float32), (0, 0), sigmaX=max(2.0, side * 0.062), sigmaY=max(1.0, side * 0.014))
+    a = max(2, int(side * 0.02))
+    for i in np.where(cand)[0]:
+        xi, gi = int(x[i]), int(g[i]) - y0
+        if not 0 <= xi < W:
+            continue
+        top = G[max(0, gi - int(0.35 * side)):max(1, gi + 1), xi]          # the bright line just above the edge
+        deep = G[min(len(G) - 1, gi + a):min(len(G), gi + int(DEEP_SIDES * side)), xi]
+        if len(top) and len(deep) and top.max() - deep.min() > DEEP_DROP:
+            out[i] = True
+    # only runs: flagged points with only points not found (or at most 3 found ones) between them, SLID_RUN_MM long
+    idx = np.where(out)[0]
+    keep = np.zeros(len(x), bool)
+    if len(idx):
+        between = np.array([found[i + 1:j].sum() for i, j in zip(idx[:-1], idx[1:])], int)
+        groups = np.split(idx, np.where(between > 3)[0] + 1)
+        for grp in groups:
+            if (x[grp[-1]] - x[grp[0]]) * mmpx >= SLID_RUN_MM:
+                keep[grp] = True
+    return keep
+
+
 def measure_full(gray, view, pts_norm, box=None, limit=LIMIT_MM, local=None, trace=None):
     """measure() next to the QR, then the edges followed along the whole side (the shoe box of the capture as the
     end). gap_mm = the largest gap (a running median over SMOOTH_MM of length); also the median, where it is
@@ -380,6 +434,8 @@ def measure_full(gray, view, pts_norm, box=None, limit=LIMIT_MM, local=None, tra
     # the midsole edge is a smooth moulded line: a robust local fit (points off it are misreadings, such as a
     # shadow at the toe); the upper edge only loses single spikes (running median over ~2 mm): a gap shows there
     colw = max(2, int(side / 30))
+    slid = _slid(gray, side, mmpx, x, r, g, found)
+    found = found & ~slid
     gs = _lowess(x, g, found, MIDSOLE_SMOOTH_MM / mmpx)
     g_ok = np.abs(g - gs) < 0.08 * side
     k = max(3, int(round(2.0 / mmpx / colw)) | 1)
@@ -442,7 +498,7 @@ def measure_full(gray, view, pts_norm, box=None, limit=LIMIT_MM, local=None, tra
         out.update(status="unsure", why=f"edges found in {out['found_pct']:.0f}% of the traced length")
     if PROFILE:   # for tuning (not in normal results): the lines and flags of every column
         out["_prof"] = {"x": x.tolist(), "rs": rs.tolist(), "gs": gs.tolist(), "found": (np.array([p[3] for p in tr])
-                        & g_ok).tolist(), "trim": trim, "colw": colw, "mmpx": mmpx, "gap": gap.tolist()}
+                        & g_ok & ~slid).tolist(), "slid": slid.tolist(), "trim": trim, "colw": colw, "mmpx": mmpx, "gap": gap.tolist()}
     out["over_min_mm"] = OVER_MIN_MM
     out["defect"] = out["status"] != "fail" and out["over_mm"] >= OVER_MIN_MM
     return out
