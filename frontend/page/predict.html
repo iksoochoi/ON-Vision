@@ -49,13 +49,14 @@
           <select id="clsSel" title="Defect class"><option value="">All classes</option></select>
         </div>
         <div class="row savebar">
-          <button type="button" id="saveAll" class="secondary" title="Save the pictures with the boxes and a result.json of every set in this list (as filtered) into the exports folder of the app">Save shown</button>
+          <button type="button" id="saveSel" class="secondary" disabled title="Save the sets ticked in the list as a zip (the pictures with the boxes and the bonding gap lines + a result.json per set) and download it">Save selected</button>
+          <button type="button" id="saveAll" class="secondary" title="Save the pictures with the boxes and a result.json of every set in this list (as filtered) into the exports folder of the app, as a zip to download">Save shown</button>
           <label class="corr" title="Also put the pictures as they were saved next to the ones with boxes"><input type="checkbox" id="saveOrig"> with originals</label>
         </div>
         <div class="row delbar">
           <button type="button" id="delSel" class="secondary" disabled title="Delete the results of the sets ticked in the list (the sets and their pictures stay)">Delete selected</button>
           <button type="button" id="delAll" class="secondary" title="Delete the results of ALL sets (the sets and their pictures stay)">Delete all results</button>
-          <label class="corr" title="Tick or untick every set of the list"><input type="checkbox" id="pickAll"> select shown</label>
+          <label class="corr" title="Tick or untick every set of the list (to save or delete them)"><input type="checkbox" id="pickAll"> select shown</label>
         </div>
         <div class="hint" id="saveMsg" hidden></div>
         <div class="jobbox">

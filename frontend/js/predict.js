@@ -15,7 +15,7 @@ let okClasses = [];
 let selected = null;
 let current = null;   // the result shown on the right
 let currentCtx = null;   // and what helps to judge it (data.context)
-const picked = new Set();   // the sets ticked in the list (to delete their results)
+const picked = new Set();   // the sets ticked in the list (to save them as a zip or delete their results)
 let loading = false;
 let again = false;
 let lastStatus = null;   // the worker's status of the last load (its speed, for the period estimate)
@@ -52,8 +52,8 @@ function rawNote(r) {
 }
 
 // Save: the pictures with the boxes drawn + result.json per set go into exports/predict_<time>/ on the computer that
-// runs the app, and a zip of it can be downloaded here.
-async function saveSets(body, button) {
+// runs the app, and a zip of it can be downloaded here (download: true - Save selected - starts the download at once).
+async function saveSets(body, button, download) {
   const msg = $('saveMsg');
   const label = button.textContent;
   button.disabled = true;
@@ -73,6 +73,14 @@ async function saveSets(body, button) {
     msg.innerHTML = `Saved ${data.saved} set${data.saved === 1 ? '' : 's'} (${data.corrected ? 'with corrections' : 'raw'}) to <span class="mono">${esc(data.dir)}</span> · ` +
       `<a href="/exports/${encodeURIComponent(data.zip)}">Download zip</a>` +
       (skipped ? ` · ${skipped} skipped` : '') + (data.capped ? ` · ${data.capped} more were left out (the most that goes into one save)` : '');
+    if (download) {
+      const a = document.createElement('a');
+      a.href = `/exports/${encodeURIComponent(data.zip)}`;
+      a.download = data.zip;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
   } catch (e) {
     msg.className = 'hint saveerr';
     msg.textContent = 'Could not save: ' + e.message;
@@ -313,6 +321,8 @@ function renderPicked() {
   for (const id of [...picked]) if (!rows.some((r) => r.id === id)) picked.delete(id);   // a set that is not in the list is not selected
   $('delSel').textContent = picked.size ? `Delete selected (${picked.size})` : 'Delete selected';
   $('delSel').disabled = !picked.size;
+  $('saveSel').textContent = picked.size ? `Save selected (${picked.size})` : 'Save selected';
+  $('saveSel').disabled = !picked.size;
   $('delAll').disabled = !totals || !totals.all;
   $('pickAll').checked = rows.length > 0 && picked.size === rows.length;
 }
@@ -538,6 +548,12 @@ $('saveAll').onclick = () => {
   if (n > 50 && !window.confirm(`Save ${n} sets? Every set takes about a second and some disk space.`)) return;
   saveSets({ filter: flt, cls: $('clsSel').value || null, date: $('dateSel').value || null }, $('saveAll'));
 };
+$('saveSel').onclick = () => {
+  const ids = rows.filter((r) => picked.has(r.id)).map((r) => r.id);   // in the order of the list
+  if (!ids.length) return;
+  if (ids.length > 50 && !window.confirm(`Save ${ids.length} sets as a zip? Every set takes about a second and some disk space.`)) return;
+  saveSets({ ids }, $('saveSel'), true);
+};
 $('detail').addEventListener('click', (e) => {
   const b = e.target.closest('#saveOne');
   if (b && selected) saveSets({ ids: [selected] }, b);
@@ -579,8 +595,8 @@ $('moreBtn').onclick = () => load(true);
 $('rows').onclick = (e) => {
   const row = e.target.closest('.pred-row');
   if (!row) return;
-  if (e.target.classList.contains('pick')) {   // the tick box: select for deleting, do not open the set
-    if (e.target.checked) picked.add(row.dataset.id); else picked.delete(row.dataset.id);
+  if (e.target.classList.contains('pick')) {   // the tick box: select (to save or delete), do not open the set
+    if (e.target.checked) picked.add(row.dataset.id); else picked.delete(row.dataset.id);   // to save or delete
     renderPicked();
     return;
   }
