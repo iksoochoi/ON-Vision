@@ -1,21 +1,21 @@
 {
- "source": "train/defect_detection/runs/overspray_s_1280, best.pt (epoch 145), final validation of the run, val split (69 pictures: 23 defect, 46 OK)",
+ "source": "train/defect_detection/runs/overspray_s_1280_20261125, best.pt (epoch 117), final validation of the run, val split (82 pictures: 36 defect, 46 OK)",
  "overall": {
-  "images": 69,
-  "instances": 24,
-  "precision": 0.504,
-  "recall": 0.542,
-  "map50": 0.559,
-  "map50_95": 0.253
+  "images": 82,
+  "instances": 38,
+  "precision": 0.64,
+  "recall": 0.609,
+  "map50": 0.649,
+  "map50_95": 0.297
  },
  "classes": {
   "Overspray": {
-   "images": 23,
-   "instances": 24,
-   "precision": 0.504,
-   "recall": 0.542,
-   "map50": 0.559,
-   "map50_95": 0.253
+   "images": 36,
+   "instances": 38,
+   "precision": 0.64,
+   "recall": 0.609,
+   "map50": 0.649,
+   "map50_95": 0.297
   }
  }
 }

@@ -375,7 +375,7 @@ PREDICT_MODEL_NAME = (f"{PREDICT_MODEL.parent.name}/{PREDICT_MODEL.name}" if PRE
                       else PREDICT_MODEL.name)
 PREDICT_DEVICE = _env("ON_PREDICT_DEVICE", "auto").strip().lower()   # auto (Apple GPU = mps, else cuda, else cpu) | cpu | mps | 0
 PREDICT_IMGSZ = max(32, _env("ON_PREDICT_IMGSZ", 1280, int))         # the model was trained at 1280
-PREDICT_CONF = max(0.01, min(0.99, _env("ON_PREDICT_CONF", 0.25, float)))   # minimum score of a detection
+PREDICT_CONF = max(0.01, min(0.99, _env("ON_PREDICT_CONF", 0.4, float)))   # minimum score of a detection
 PREDICT_THREADS = max(1, _env("ON_PREDICT_THREADS", 2, int))         # torch CPU threads (the GPU does the work on a Mac)
 PREDICT_MAX_AGE_HOURS = max(0.0, _env("ON_PREDICT_MAX_AGE_HOURS", 24.0, float))   # older sets are not predicted (0 = no limit)
 PREDICT_MAX_BACKLOG = max(1, _env("ON_PREDICT_MAX_BACKLOG", 100, int))   # more waiting than this: the OLDEST are left out

@@ -162,7 +162,7 @@ def main():
     ap.add_argument("--out", help="where to write (default exports/predict_raw_<from>_<to>, with --seg predict_seg_<from>_<to>)")
     ap.add_argument("--seg", action="store_true", help="remove the background with the shoe segmentation model first, like the worker")
     ap.add_argument("--qr-only", action="store_true", help="only the sets whose shoe QR value was read (default: all sets)")
-    ap.add_argument("--conf", type=float, help="minimum score of a box (default ON_PREDICT_CONF, 0.25)")
+    ap.add_argument("--conf", type=float, help="minimum score of a box (default ON_PREDICT_CONF, 0.4)")
     ap.add_argument("--imgsz", type=int, help="model input size (default ON_PREDICT_IMGSZ, 1280)")
     ap.add_argument("--device", help="auto | cpu | mps | 0 (default ON_PREDICT_DEVICE)")
     ap.add_argument("--max-side", type=int, default=2000,

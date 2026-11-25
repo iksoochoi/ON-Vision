@@ -1,7 +1,7 @@
 task: detect
 mode: train
-model: yolo11s.pt
-data: C:\Users\ISCHOI\Desktop\ischoi_workspace\02. Project\2026\On\train\defect_detection\data\overspray_yolo_2026-11-20_cut\data_abs.yaml
+model: C:\Users\ISCHOI\Desktop\ischoi_workspace\02. Project\2026\On\train\defect_detection\yolo11s.pt
+data: C:\Users\ISCHOI\Desktop\ischoi_workspace\02. Project\2026\On\train\defect_detection\data\overspray_yolo_2026-11-25_cut\data_abs.yaml
 epochs: 150
 time: null
 patience: 50
@@ -13,7 +13,7 @@ cache: disk
 device: '0'
 workers: 2
 project: C:\Users\ISCHOI\Desktop\ischoi_workspace\02. Project\2026\On\train\defect_detection\runs
-name: overspray_s_1280
+name: overspray_s_1280_20261125
 exist_ok: false
 pretrained: true
 cls_remap: true
@@ -111,4 +111,4 @@ auto_augment: randaugment
 erasing: 0.0
 cfg: null
 tracker: tracktrack.yaml
-save_dir: C:\Users\ISCHOI\Desktop\ischoi_workspace\02. Project\2026\On\train\defect_detection\runs\overspray_s_1280
+save_dir: C:\Users\ISCHOI\Desktop\ischoi_workspace\02. Project\2026\On\train\defect_detection\runs\overspray_s_1280_20261125

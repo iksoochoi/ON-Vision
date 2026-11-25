@@ -16,7 +16,7 @@ ON_PREDICT_MODEL=overspray # overspray | poc | path
 ```
 - 모델 폴더마다 `best.pt`, `class_metrics.json`(화면의 Class mAP50), `summary.txt`(학습 정보)가 있습니다. 결과 JSON의 `model`은 `overspray/best.pt`처럼 폴더 이름까지 적힙니다(이전 결과는 `best.pt`).
 - **주의: 모델을 바꿔도 이미 만든 결과(`captures/.predict/`)는 그대로 남습니다.** 이전 모델 결과를 새 모델로 바꾸려면 Predict 화면의 **Predict a period**에서 기간을 고르고 **again**을 켜서 예측하세요(아래 "기간 예측").
-- **Overspray 모델 주의**: 학습 사진에 top 뷰가 없고(front/left/right/back만), 불량 예시는 ON1WH뿐이며 back 불량은 7장뿐입니다. top 사진과 back 사진의 박스는 특히 조심해서 보세요. 점수 0.5를 넘는 박스가 거의 없으므로 `ON_PREDICT_CONF`는 0.25 근처로 두세요(0.4면 불량을 대부분 놓침).
+- **Overspray 모델 주의**(2026-11-25 모델 `overspray_s_1280_20261125`): 학습 사진에 top 뷰가 없습니다(front/left/right/back만). top 사진의 박스는 특히 조심해서 보세요. 불량 예시는 ON1WH + ON1GR(11/16~21 QC)입니다. `ON_PREDICT_CONF`는 0.4로 두세요. 0.25면 정상 신발 12켤레 중 8켤레에 박스가 생기고, 0.4면 3켤레입니다(불량 신발 27켤레 중 18켤레 검출, 이전 모델은 0.25에서 11켤레). val의 ON1GR 정상 신발은 3켤레뿐이라 ON1GR 오검출은 현장에서 확인이 필요합니다.
 
 ## 불량 검출 과정 (신발 배경 제거 → 불량 모델 → Bonding gap)
 ```
@@ -189,7 +189,7 @@ Predict 화면에서 **불량 탐지 결과만** 지웁니다. 세트와 사진�
 | `ON_PREDICT_MODEL` | `overspray` | 불량 모델: `overspray` / `poc`(`backend/models/defect_detection/<이름>/best.pt`) 또는 `.pt` 파일 경로 |
 | `ON_PREDICT_DEVICE` | `auto` | `auto`(mps → cuda → cpu) / `cpu` / `mps` / `0` |
 | `ON_PREDICT_IMGSZ` | `1280` | 입력 크기(학습 때와 같음). 줄이면 빨라지고 작은 결함은 놓칠 수 있음 |
-| `ON_PREDICT_CONF` | `0.25` | 검출 최소 점수 |
+| `ON_PREDICT_CONF` | `0.4` | 검출 최소 점수 (Overspray 모델 2026-11-25 기준) |
 | `ON_PREDICT_SEG` | `1` | 신발 배경 제거 후 불량 검출 (0 = 저장된 사진 그대로) |
 | `ON_PREDICT_SEG_MODEL` | `backend/models/shoe_segmentation/best.pt` | 신발 분할 모델 파일 |
 | `ON_PREDICT_SEG_IMGSZ` | `960` | 분할 모델 입력 크기(학습 때와 같음) |

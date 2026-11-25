@@ -1,15 +1,18 @@
-Run: overspray_s_1280 (2026-11-20, train/defect_detection/train_overspray.py)
+Run: overspray_s_1280_20261125 (2026-11-25, train/defect_detection/train_overspray.py)
 
-Model: YOLO11s, 1 class (0: Overspray), imgsz 1280, 150 epochs, best.pt = epoch 145
-Data: train/defect_detection/data/overspray_yolo_2026-11-20_cut (background removed as the Predict worker does)
-  train 94 defect pictures (60 shoes) + 122 OK pictures (32 shoes), 99 boxes
-  val   23 defect pictures (14 shoes) +  46 OK pictures (12 shoes), 24 boxes
-  views front/left/right/back only (no top), defect pictures ON1WH only
+Model: YOLO11s, 1 class (0: Overspray), imgsz 1280, 150 epochs from yolo11s.pt, best.pt = epoch 117
+Data: train/defect_detection/data/overspray_yolo_2026-11-25_cut (background removed as the Predict worker does)
+  = overspray_yolo_2026-11-20 (train / val kept) + defect_overspray_2026-11-25_qc_1116_1121 (ON1GR defects, split by shoe)
+  train 144 defect pictures (ON1WH 94 + ON1GR 50) + 122 OK pictures (ON1WH), 153 boxes
+  val    36 defect pictures (ON1WH 23 + ON1GR 13) +  46 OK pictures (ON1WH 35 + ON1GR 11), 38 boxes
+  views front/left/right/back only (no top)
 
-val (box): mAP50=0.559  mAP50-95=0.253  P=0.504  R=0.542
-val (shoe = any view with a box), eval_overspray.py:
-  conf 0.15: defect shoes found 10/14, OK shoes with a box 4/12
-  conf 0.25: defect shoes found 10/14, OK shoes with a box 2/12
-  conf 0.30: defect shoes found  8/14, OK shoes with a box 2/12
-  conf 0.40: defect shoes found  2/14, OK shoes with a box 0/12
-No box scores 0.5 or more on val: keep ON_PREDICT_CONF near 0.25.
+val (box): mAP50=0.649  mAP50-95=0.297  P=0.640  R=0.609
+val (shoe = any view with a box), eval_overspray.py: defect shoes found / OK shoes with a box
+  conf    all            ON1GR          ON1WH
+  0.25   23/27  8/12    11/13  2/3     12/14  6/9
+  0.30   19/27  6/12    10/13  2/3      9/14  4/9
+  0.40   18/27  3/12     9/13  1/3      9/14  2/9
+  0.50   17/27  2/12     8/13  1/3      9/14  1/9
+Previous model (overspray_s_1280) on the same val at conf 0.25: 11/27 2/12 (ON1GR 1/13).
+Use ON_PREDICT_CONF 0.4: at 0.25 many OK shoes get a box. Only 3 ON1GR OK shoes in val: watch ON1GR false boxes on site.
