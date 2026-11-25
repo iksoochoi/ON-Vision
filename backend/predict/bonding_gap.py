@@ -61,6 +61,14 @@ and the tracing slid down to the lower end of the white midsole (the line to the
 line's median, over 5 mm along) are left out (_slid): 26038R 7.9 -> 4.7, 36033R 8.1 -> 5.3. A check inside the tracing
 (find) was tried first and dropped: at the toe of some shoes the outsole lugs come up to ~4 mm under the true edge
 (ON1BL 48992L right: the line then went up onto the upper).
+2026-11-25 (ALGO 11): (1) found_pct (status 'unsure' under 60%) of the measured length: the trimmed / curved ends were
+counted as not found (ON1BL: 40-80 mm curved per side, the lines right but 'unsure'); (2) a faint midsole edge (step
+6-12 under the bright line, the usual check is 12: the new lights make the side wall under it light too) is taken in
+the tracing where the last points put it (WEAK_EDGE / WEAK_TOL); (3) a cam plate match a little under min_score
+(left 0.1, right 0.05) is used when the plate size is one seen on good matches, the result flagged 'check' (the plate
+tilted a little: 3 of 60 ON1BL pictures were 'none'). Gallery 30 ON1BL sets: unsure 9 -> 0, none 3 -> 0; export 10:
+unsure 8 -> 1. qc_1105-1121 1,075 sets: unsure -> ok 101 sides, none -> ok 16; defects 2 less: Overlap 194958_019
+(34 -> 26 mm over) and Bonding_gap 20261114_171053_325 (30.7 -> 29.9 mm over: on the 30 mm line, the same max 5.98).
 """
 import argparse
 import json
@@ -73,7 +81,9 @@ import numpy as np
 
 QR_MM = 13.0          # the side of the printed QR code (not the label)
 LIMIT_MM = 5.0        # more than this is a bonding gap defect (until 2026-11-19 4.0; see OVER_MIN_MM)
-ALGO = 10             # change when the measurement changes: older cached results are measured again
+ALGO = 11             # change when the measurement changes: older cached results are measured again
+                      # (11, 2026-11-25: found_pct of the measured length; faint midsole edges where expected; a
+                      # weak cam plate match used, flagged check)
                       # (10, 2026-11-25: midsole points slid down to the outsole at the toe left out, see _slid)
                       # (9, 2026-11-25: the start window found again by the lowest turn, see _trace)
                       # (7, 2026-11-18: a coloured upper in the blue channel; the label on the plate hidden)
@@ -98,6 +108,9 @@ DEEP_DROP = 100       # sides (~8 mm) below it (a point this much darker than th
 SLID_MM = 1.5         # this much wider than the median of the line: the lower end of the white midsole at the toe, not
                       # its top edge - left out (a normal gap with the outsole close below is the thin toe: kept)
 SLID_RUN_MM = 5.0     # ... over this length along the shoe at least
+WEAK_EDGE = 6         # tracing: a midsole edge only this much darker below (the usual check is 12) is taken when it is
+WEAK_TOL = 0.04       # within this many QR sides (~0.5 mm) of where the last points put it (2026-11-25 ON1BL, the new
+                      # lights: the side wall under the edge is light too, the step of the edge 6-12 on many columns)
 SEED_DROP = 0.1      # the start window's upper edge replaced by the tracing's (the lowest turn) only when that is
                      # this many QR sides (~1.3 mm) lower (see _trace; the ON RUNNING letters of the lime ON1GR)
 SMOOTH_MM = 4.0      # the gap is a running median over this length
@@ -258,7 +271,7 @@ def _trace(gray, side, seed, box, d_heel):
     bx0, bx1 = (box[0] * W, box[2] * W) if box else (0, W)
     x_lo, x_hi = max(b, bx0 + 0.01 * W), min(W - b, bx1 - 0.01 * W)
 
-    def find(x, pr, pg):
+    def find(x, pr, pg, weak_ok=True):
         """The midsole edge first (the brightest line near where it is expected, then the steepest drop), then the
         upper edge: the LOWEST dark-to-white turn above that line with a band as bright as the midsole between them
         (print on the upper, such as the ON RUNNING letters, also turns dark to light, but higher and onto the grey
@@ -273,7 +286,9 @@ def _trace(gray, side, seed, box, d_heel):
         if len(dseg) < 2:
             return None
         y2 = yp + int(np.argmin(dseg))                              # side wall: the midsole edge
-        if c[yp] - c[min(len(c) - 1, y2 + a)] < 12:
+        step_down = c[yp] - c[min(len(c) - 1, y2 + a)]
+        weak = step_down < 12                                       # a faint edge: only where the line is expected
+        if weak and (not weak_ok or step_down < WEAK_EDGE or abs(y2 + y_top - pg) > WEAK_TOL * side):
             return None
         wall = c[min(len(c) - 1, y2 + a):min(len(c), y2 + max(a + 2, int(WALL_SIDES * side)))].mean()
         if c[yp] - wall > MAX_WALL_DROP:                              # not the midsole: the outsole below it
@@ -331,7 +346,7 @@ def _trace(gray, side, seed, box, d_heel):
     # change moved good windows up onto the letters or split real gaps: ON1GR 20261120_203556_463, ON1WH 174909_618)
     for i in range(len(xs0)):
         x, r, g, _ = pts[i]
-        f = find(x, r, g)
+        f = find(x, r, g, weak_ok=False)
         if f and f[1] - f[0] > 0.05 * side and f[0] - r > SEED_DROP * side:
             pts[i] = (x, float(f[0]), float(f[1]), True)
     return sorted(pts)
@@ -486,7 +501,11 @@ def measure_full(gray, view, pts_norm, box=None, limit=LIMIT_MM, local=None, tra
         "max_at": [round(float(x[i_max] / W), 5), round(float((rs[i_max] + gs[i_max]) / 2 / H), 5)],
         "max_line": [[round(float(x[i_max] / W), 5), round(float(rs[i_max] / H), 5)],
                      [round(float(x[i_max] / W), 5), round(float(gs[i_max] / H), 5)]],
-        "span_mm": round(span_mm, 1), "found_pct": round(100 * float(found.mean()), 1), "curved_mm": round(curved_mm, 1),
+        # found_pct: of the measured length - the trimmed / curved ends are left out of the max anyway; until ALGO 10
+        # they counted as not found (ON1BL: 40-80 mm curved per side, lines right but 'unsure', 2026-11-25)
+        "span_mm": round(span_mm, 1), "measured_mm": round(float((~ends).sum() * colw * mmpx), 1),
+        "found_pct": round(100 * float(found[~ends].mean()) if (~ends).any() else 0.0, 1),
+        "curved_mm": round(curved_mm, 1),
         "over_mm": round(float(sum(dx[s:e].sum() for s, e in runs)), 1),
         "over": [[P_ for P_ in zip(x[s:e:max(1, (e - s) // 20)].tolist() + [x[e - 1]],
                                    rs[s:e:max(1, (e - s) // 20)].tolist() + [rs[e - 1]],
@@ -495,10 +514,10 @@ def measure_full(gray, view, pts_norm, box=None, limit=LIMIT_MM, local=None, tra
     })
     out["over"] = [[[round(xx / W, 5), round(yr_ / H, 5), round(yg_ / H, 5)] for xx, yr_, yg_ in run] for run in out["over"]]
     if out["found_pct"] < 60:
-        out.update(status="unsure", why=f"edges found in {out['found_pct']:.0f}% of the traced length")
+        out.update(status="unsure", why=f"edges found in {out['found_pct']:.0f}% of the measured length")
     if PROFILE:   # for tuning (not in normal results): the lines and flags of every column
         out["_prof"] = {"x": x.tolist(), "rs": rs.tolist(), "gs": gs.tolist(), "found": (np.array([p[3] for p in tr])
-                        & g_ok & ~slid).tolist(), "slid": slid.tolist(), "trim": trim, "colw": colw, "mmpx": mmpx, "gap": gap.tolist()}
+                        & g_ok & ~slid).tolist(), "slid": slid.tolist(), "ends": ends.tolist(), "trim": trim, "colw": colw, "mmpx": mmpx, "gap": gap.tolist()}
     out["over_min_mm"] = OVER_MIN_MM
     out["defect"] = out["status"] != "fail" and out["over_mm"] >= OVER_MIN_MM
     return out
@@ -621,6 +640,12 @@ def hide_label(bgr, qr_px):
 PLATE_S = (0.76, 1.24)   # the plate size against the template searched (2026-11-19, 240 pictures of both folders:
 # 0.80-1.16 found; until then 0.66-1.42)
 PLATE_ANG = 6.0          # +- degrees (found -4.3 .. 6.0)
+PLATE_WEAK = {"left": 0.10, "right": 0.05}   # a match this much under min_score is still used, flagged 'check'
+PLATE_WEAK_S = (0.80, 1.16)   # ... only with a plate size found on good matches (qc_1105-1121, right: a weak match
+# at the edge of the search, s ~0.76, gave 0.12-0.13 mm/px against 0.08-0.107 normally and 5 false defects)
+# (2026-11-25: the plate tilted a little on 3 of 60 ON1BL pictures, found in the right place at 0.47 / 0.50 / 0.59;
+# left, sets with a QR on the shoe: at 0.50-0.60 the plate scale 1-10% (mostly ~5%) off the QR's (0.7 up: p90 2.8%),
+# under 0.50 up to 70% off. Right: no sets with a QR between 0.36 and 0.50 to check it, so a smaller margin)
 
 
 def _arange(lo, hi, step):
@@ -680,10 +705,13 @@ def plate_scale(bgr, view, label=None):
         return {"why": "the last (its teal part) is not found"}
     out = {"score": f["score"], "box": [round(f["box"][0] / W, 4), round(f["box"][1] / H, 4),
                                         round(f["box"][2] / W, 4), round(f["box"][3] / H, 4)]}
-    if f["score"] < c["min_score"]:
+    weak = f["score"] < c["min_score"]
+    if f["score"] < c["min_score"] - PLATE_WEAK.get(view, 0.0) or (weak and not PLATE_WEAK_S[0] <= f["s"] <= PLATE_WEAK_S[1]):
         out["why"] = f"the cam plate is not found well (match {f['score']:.2f} < {c['min_score']})"
         return out
     out["mm_per_px"] = round(c["k"] / f["s"], 5)
+    if weak:
+        out["weak"] = True   # measured, flagged 'check' by measure_set
     return out
 
 
@@ -815,7 +843,7 @@ def measure_set(js, limit=LIMIT_MM, use_qr=True, view=None, pics=None):
     if on_shoe:
         r = measure_full(gray, view, pts, box, limit)
         r["scale"] = "qr"
-        if plate.get("mm_per_px") and r.get("mm_per_px"):
+        if plate.get("mm_per_px") and r.get("mm_per_px") and not plate.get("weak"):
             diff = 100 * (plate["mm_per_px"] / r["mm_per_px"] - 1)
             r.update(plate_mm_per_px=plate["mm_per_px"], plate_diff_pct=round(diff, 1))
             if abs(diff) > PLATE_CHECK_PCT:
@@ -825,6 +853,8 @@ def measure_set(js, limit=LIMIT_MM, use_qr=True, view=None, pics=None):
             return {"status": "none", "view": view, "why": f"{no_qr_why}; {plate['why']}", "plate": plate}
         r = measure_noqr(gray, view, plate["mm_per_px"], box, limit)
         r.update(scale="plate", no_qr=no_qr_why)
+        if plate.get("weak"):
+            r["check"] = f"the cam plate found weakly (match {plate['score']:.2f}): the scale may be up to ~10% off"
         r.pop("qr", None)
     r["plate"] = plate
     r["channel"] = channel
