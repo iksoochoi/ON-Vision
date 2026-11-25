@@ -69,6 +69,13 @@ the tracing where the last points put it (WEAK_EDGE / WEAK_TOL); (3) a cam plate
 tilted a little: 3 of 60 ON1BL pictures were 'none'). Gallery 30 ON1BL sets: unsure 9 -> 0, none 3 -> 0; export 10:
 unsure 8 -> 1. qc_1105-1121 1,075 sets: unsure -> ok 101 sides, none -> ok 16; defects 2 less: Overlap 194958_019
 (34 -> 26 mm over) and Bonding_gap 20261114_171053_325 (30.7 -> 29.9 mm over: on the 30 mm line, the same max 5.98).
+2026-11-25 (ALGO 12): predict_20261125_164159 (the Mac, 251 ON1BL sets, 5 flagged): 29073L left read 8.2 mm over 46 mm,
+the line along the shoe right but going up onto ON RUNNING / the grey upper at the toe. No QR: every start window was
+on the letters (fx 0.6) and the starts on the true line were skipped as 'on a line already followed'; the plate scale
+1% apart (Mac 0.0779, here 0.0788) picked another of those traces. After the tracing, midsole points whose bright line
+is MIDSOLE_DARK darker than the line's own (upper quartile; ~130 against ~235 there) over SLID_RUN_MM or more are left
+out (shorter: a shaded heel end, 26077L left, moved the bent-end cut). 29073L: no defect at any scale 0.077-0.0795.
+qc_1105-1121 1,075 sets, Gallery 30, export 10: no verdict changed.
 """
 import argparse
 import json
@@ -81,7 +88,8 @@ import numpy as np
 
 QR_MM = 13.0          # the side of the printed QR code (not the label)
 LIMIT_MM = 5.0        # more than this is a bonding gap defect (until 2026-11-19 4.0; see OVER_MIN_MM)
-ALGO = 11             # change when the measurement changes: older cached results are measured again
+ALGO = 12             # change when the measurement changes: older cached results are measured again
+                      # (12, 2026-11-25: midsole points under a bright line much darker than the line's own left out)
                       # (11, 2026-11-25: found_pct of the measured length; faint midsole edges where expected; a
                       # weak cam plate match used, flagged check)
                       # (10, 2026-11-25: midsole points slid down to the outsole at the toe left out, see _slid)
@@ -108,6 +116,9 @@ DEEP_DROP = 100       # sides (~8 mm) below it (a point this much darker than th
 SLID_MM = 1.5         # this much wider than the median of the line: the lower end of the white midsole at the toe, not
                       # its top edge - left out (a normal gap with the outsole close below is the thin toe: kept)
 SLID_RUN_MM = 5.0     # ... over this length along the shoe at least
+MIDSOLE_DARK = 60     # tracing: the bright line taken as the top of the midsole at most this much darker than in the
+                      # start window (2026-11-25 ON1BL 29073L left: the line went up onto ON RUNNING / the grey upper,
+                      # the 'midsole' there ~130 against ~235: a false 8.2 mm over 46 mm)
 WEAK_EDGE = 6         # tracing: a midsole edge only this much darker below (the usual check is 12) is taken when it is
 WEAK_TOL = 0.04       # within this many QR sides (~0.5 mm) of where the last points put it (2026-11-25 ON1BL, the new
                       # lights: the side wall under the edge is light too, the step of the edge 6-12 on many columns)
@@ -270,6 +281,10 @@ def _trace(gray, side, seed, box, d_heel):
     tol_r, tol_g = 0.15 * side, 0.20 * side
     bx0, bx1 = (box[0] * W, box[2] * W) if box else (0, W)
     x_lo, x_hi = max(b, bx0 + 0.01 * W), min(W - b, bx1 - 0.01 * W)
+    def lit(x, g):
+        """the bright line just above a midsole point (the top of the white midsole)"""
+        gi, xi = int(g) - y_top, min(W - 1, max(0, int(x)))
+        return float(G[max(0, gi - int(0.35 * side)):max(1, min(len(G), gi + 1)), xi].max())
 
     def find(x, pr, pg, weak_ok=True):
         """The midsole edge first (the brightest line near where it is expected, then the steepest drop), then the
@@ -349,7 +364,24 @@ def _trace(gray, side, seed, box, d_heel):
         f = find(x, r, g, weak_ok=False)
         if f and f[1] - f[0] > 0.05 * side and f[0] - r > SEED_DROP * side:
             pts[i] = (x, float(f[0]), float(f[1]), True)
-    return sorted(pts)
+    # the midsole points not on the white midsole (ALGO 12): the bright line above them MIDSOLE_DARK darker than the
+    # line's own (its upper quartile) - the tracing went up onto the print or the grey upper (ON1BL 29073L left: the
+    # start windows all on ON RUNNING, the line along the shoe right but onto the letters at the toe, ~130 vs ~235)
+    pts = sorted(pts)
+    found = [i for i, p in enumerate(pts) if p[3]]
+    # only runs of SLID_RUN_MM along the shoe or more (a few points at a shaded heel end are not left out: that moved
+    # the bent-end cut, 26077L left)
+    if len(found) >= 10:
+        v = np.array([lit(pts[i][0], pts[i][2]) for i in found])
+        ref = float(np.percentile(v, 75))
+        dark = [k for k, vi in enumerate(v) if vi < ref - MIDSOLE_DARK]
+        mmpx = QR_MM / side
+        if dark:
+            for grp in np.split(np.array(dark), np.where(np.diff(dark) > 1)[0] + 1):
+                if (pts[found[grp[-1]]][0] - pts[found[grp[0]]][0]) * mmpx >= SLID_RUN_MM:
+                    for k in grp:
+                        pts[found[k]] = pts[found[k]][:3] + (False,)
+    return pts
 
 
 def _lowess(x, y, ok, width, it=3):
@@ -892,15 +924,22 @@ def draw(js, res, out_dir):
     cv2.imencode(".jpg", crop)[1].tofile(str(out))
 
 
+GALLERY = "Gallery"
+
+
 def set_jsons(root, skip=("PoC",)):
     """[(json path, group, shoe, set)] of an unzipped qc_export folder, in name order: <group>/<shoe>/<set>/<id>.json,
-    or <group>/<shoe>/<id>.json (exported without the pass folder: the set is the time part of the id)."""
+    or <group>/<shoe>/<id>.json (exported without the pass folder: the set is the time part of the id).
+    Also a Gallery download (2026-11-25): <shoe>/<id>/<id>.json (the set folder named as the set): group GALLERY, the
+    sets have no QC result."""
     out = []
     for js in Path(root).glob("*/*/*/*.json"):
         if js.parts[-4] not in skip:
             out.append((js, js.parts[-4], js.parts[-3], js.parts[-2]))
     for js in Path(root).glob("*/*/*.json"):
-        if js.parts[-3] not in skip:
+        if js.parent.name == js.stem:   # a Gallery download
+            out.append((js, GALLERY, js.parts[-3], js.stem[-19:]))
+        elif js.parts[-3] not in skip:
             out.append((js, js.parts[-3], js.parts[-2], js.stem[-19:]))
     return sorted(out, key=lambda t: str(t[0]))
 
