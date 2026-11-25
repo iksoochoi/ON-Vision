@@ -49,6 +49,12 @@ in the blue channel (edge_image, result 'channel'; COLOR_SAT decides). The grey 
 2026-11-19: a coloured upper in V - 2*S (HSV) instead of the blue channel: on the right camera the lime upper near the
 sole is pale (blue about as light as the white band), so the start was found on the outsole at the toe; the white
 band has almost no saturation, the upper does (edge_image, channel 'vs').
+2026-11-25 (ALGO 9): the start window's upper edge (measure: the STRONGEST turn) found again by the tracing's rule
+(the lowest turn) and replaced when that is clearly lower (SEED_DROP). Where print comes down near the sole (ON RUNNING
+on the right camera of the lime ON1GR, the pale lime under it; also some grey ON1WH) the window had taken the bottom of
+the letters: a box-shaped wide gap as long as the window (~38 mm), just over OVER_MIN_MM. All 1,075 sets of
+qc_1105-1109 / 1110-1114 / 1116-1121: no new defect, 22 less (ON1GR OK 2 -> 0, other types 25 -> 12; ON1WH other
+types 14 -> 7), the known Bonding_gap found the same (ON1GR 20/30, ON1WH 15/23), the median gap unchanged on 93%.
 """
 import argparse
 import json
@@ -61,7 +67,8 @@ import numpy as np
 
 QR_MM = 13.0          # the side of the printed QR code (not the label)
 LIMIT_MM = 5.0        # more than this is a bonding gap defect (until 2026-11-19 4.0; see OVER_MIN_MM)
-ALGO = 8              # change when the measurement changes: older cached results are measured again
+ALGO = 9              # change when the measurement changes: older cached results are measured again
+                      # (9, 2026-11-25: the start window found again by the lowest turn, see _trace)
                       # (7, 2026-11-18: a coloured upper in the blue channel; the label on the plate hidden)
                       # (8, 2026-11-19: a coloured upper in V - 2*S; the cam plate found in three steps; no QR:
                       # the longest of several traced starts; the bent toe / heel left out; limits 5 mm / 30 mm)
@@ -79,6 +86,8 @@ PROFILE = False       # True: measure_full adds "_prof" (every column) for tunin
 MAX_WALL_DROP = 60    # tracing: below the midsole edge the side wall is still light (the bright line minus the mean of
 WALL_SIDES = 0.15     # this many QR sides below it, about 2 mm); more: the edge found is the dark outsole at the toe or
                       # heel (spray down to the midsole there, 2026-11-17: 20261109_142131_460 read 8.1 mm at the toe)
+SEED_DROP = 0.1      # the start window's upper edge replaced by the tracing's (the lowest turn) only when that is
+                     # this many QR sides (~1.3 mm) lower (see _trace; the ON RUNNING letters of the lime ON1GR)
 SMOOTH_MM = 4.0      # the gap is a running median over this length
 OVER_MIN_MM = 30.0   # a defect: the gap over the limit for at least this length along the shoe (2026-11-13: the known
                      # Bonding_gap shoes 29-129 mm, the OK shoes 0-48 mm; few labelled shoes, the viewer can change it)
@@ -302,6 +311,17 @@ def _trace(gray, side, seed, box, d_heel):
         while new and not new[-1][3]:
             new.pop()
         pts += new
+    # the start window itself found again the same way (ALGO 9, 2026-11-25): measure() takes the STRONGEST turn there,
+    # and where print on the upper comes down near the sole (the ON RUNNING letters of the lime ON1GR, right camera,
+    # the pale lime under them) that is the bottom of the letters, not the end of the spray - a box-shaped wide gap as
+    # long as the window (~38 mm), a defect (qc_1116-1121: 2 of 30 OK shoes, 13 of 25 other types flagged).
+    # Only a clearly LOWER edge replaces the window's (the fault is always the window's edge too high; taking any
+    # change moved good windows up onto the letters or split real gaps: ON1GR 20261120_203556_463, ON1WH 174909_618)
+    for i in range(len(xs0)):
+        x, r, g, _ = pts[i]
+        f = find(x, r, g)
+        if f and f[1] - f[0] > 0.05 * side and f[0] - r > SEED_DROP * side:
+            pts[i] = (x, float(f[0]), float(f[1]), True)
     return sorted(pts)
 
 
