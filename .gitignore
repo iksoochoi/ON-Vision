@@ -26,3 +26,6 @@ Thumbs.db
 
 # training work (data, models, scripts) stays on this PC
 /train/
+
+# defect review: a separate project kept here only while it is written (moved out as a whole folder later)
+/defect_review/

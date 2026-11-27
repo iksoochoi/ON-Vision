@@ -237,6 +237,10 @@ QR_ENABLED = _env("ON_QR", 1, int) != 0
 QR_SCAN_HZ = _env("ON_QR_SCAN_HZ", 5.0, float)  # live scans per second of EACH scanned camera
 # Cameras searched for the QR code (live and on the saved pictures), e.g. "left,right". Empty = all.
 QR_CAMERAS = [r.strip().lower() for r in _env("ON_QR_CAMERAS", "").split(",") if r.strip()]
+# Only QR codes whose value starts with one of these (comma-separated, case does not matter) are the shoe's code;
+# any other code in the picture is passed over as if it were not there. 2026-11-27: the line also sticks its own QR
+# label on the last (e.g. "11-009-L-LS-R-120-1591"); the shoe's code is "ON1...". Empty = every code counts.
+QR_PREFIXES = [p.strip().upper() for p in _env("ON_QR_PREFIX", "ON1").split(",") if p.strip()]
 # The shoe's QR value goes in front of the names of its saved files. Where it is looked for, in this order:
 # 1. the saved pictures of the shoe pass   2. what the live scanner read while the shoe passed
 # 3. the saved pictures again, searched in enlarged tiles (finds small codes)   4. what the live scanner

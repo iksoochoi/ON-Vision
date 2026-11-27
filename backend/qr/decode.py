@@ -28,6 +28,12 @@ QUICK_SEC = 0.15           # the most the first, zxing based attempt at a locate
 _local = threading.local()  # cv2 detectors are not thread-safe: one set per thread
 
 
+def accepted(text):
+    """True for the shoe's own code: its value starts with one of ON_QR_PREFIX (all codes when that is empty).
+    Other codes (the line's own label on the last, ...) are passed over by every reader, which then goes on looking."""
+    return not C.QR_PREFIXES or str(text).strip().upper().startswith(tuple(C.QR_PREFIXES))
+
+
 def _detectors():
     if not hasattr(_local, "dets"):
         dets = []
@@ -39,8 +45,8 @@ def _detectors():
     return _local.dets
 
 
-def _decode_once(gray):
-    """[(text, 4x2 points in pixels)] for one grayscale image."""
+def _decode_once(gray, every=False):
+    """[(text, 4x2 points in pixels)] for one grayscale image: the shoe's codes (accepted), or with every=True all."""
     for det in _detectors():
         try:
             res = det.detectAndDecodeMulti(gray)
@@ -49,7 +55,7 @@ def _decode_once(gray):
         ok, texts, points = res[0], res[1], res[2]
         if not ok or points is None:
             continue
-        found = [(t, p) for t, p in zip(texts, points) if t]
+        found = [(t, p) for t, p in zip(texts, points) if t and (every or accepted(t))]
         if found:
             return found
     return []

@@ -51,8 +51,10 @@ def zxing_ready():
 
 # ---- decoders -------------------------------------------------------------------------------------------------
 
-def _zx_read(gray):
-    """[(text, 4x2 corner points or None)] of zxing-cpp for one grayscale image."""
+def _zx_read(gray, every=False):
+    """[(text, 4x2 corner points or None)] of zxing-cpp for one grayscale image: the shoe's codes (decode.accepted),
+    or with every=True all of them."""
+    from .decode import accepted
     out = []
     for binarizer in (zxingcpp.Binarizer.LocalAverage, zxingcpp.Binarizer.GlobalHistogram):
         try:
@@ -60,7 +62,7 @@ def _zx_read(gray):
         except Exception:
             continue
         for r in results:
-            if not getattr(r, "valid", True) or not r.text:
+            if not getattr(r, "valid", True) or not r.text or not (every or accepted(r.text)):
                 continue
             pos = getattr(r, "position", None)
             try:
@@ -100,9 +102,9 @@ def _adaptive(gray):
     return cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 5)
 
 
-def _cv_read(gray):
+def _cv_read(gray, every=False):
     from .decode import _decode_once   # decode.py imports this module lazily: no cycle at import time
-    return _decode_once(gray)
+    return _decode_once(gray, every)
 
 
 # ---- picture versions -------------------------------------------------------------------------------------------
@@ -189,20 +191,30 @@ def _size(quad):
 def read_located(gray, quads, origin, full_wh, deadline):
     """Read the codes that were located (`quads`: 4x2 corner points in `gray` pixels, biggest first) in the
     versions above. Returns [code dicts] or [] when none could be read before the deadline."""
+    from .decode import accepted
     use_zx = zxing_ready()
     for quad in sorted(quads, key=_size, reverse=True):
         size = _size(quad)
         for base_name, base, upscale in _bases(gray, quad):
+            other = False
             for version, img in _versions(base, upscale):
                 if time.monotonic() > deadline:
                     return []
                 tag = base_name if version == "plain" else f"{base_name}:{version}"
                 readers = (("zxing", _zx_read), ("cv", _cv_read)) if use_zx else (("cv", _cv_read),)
                 for reader_name, reader in readers:
-                    found = reader(img)
-                    if found:
-                        return [_code(found[0][0], quad, size, f"{tag}+{reader_name}" if reader_name == "zxing" else tag,
+                    found = reader(img, every=True)
+                    mine = [f for f in found if accepted(f[0])]
+                    if mine:
+                        return [_code(mine[0][0], quad, size, f"{tag}+{reader_name}" if reader_name == "zxing" else tag,
                                       origin, full_wh)]
+                    if found:   # another code (not the shoe's, ON_QR_PREFIX) sits here: no more time on it
+                        other = True
+                        break
+                if other:
+                    break
+            if other:
+                break
     return []
 
 
